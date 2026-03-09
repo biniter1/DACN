@@ -1,0 +1,70 @@
+# .github/workflows/reusable-dotnet-ci.yml
+name: Reusable — .NET CI
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      dotnet-version:
+        required: false
+        type: string
+        default: '8.0'
+
+jobs:
+  ci:
+    name: .NET CI — ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/${{ inputs.service }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('src/cartservice/**/*.csproj') }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Lint — dotnet format
+        run: dotnet format --verify-no-changes --verbosity diagnostic
+
+      - name: Build
+        run: |
+          dotnet build \
+            --no-restore \
+            --configuration Release \
+            -p:Version=${{ github.run_number }}.0.0
+
+      - name: Run tests
+        run: |
+          dotnet test \
+            --no-build \
+            --configuration Release \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./coverage
+
+      - name: Publish artifacts
+        run: |
+          dotnet publish \
+            --no-build \
+            --configuration Release \
+            --output ./publish
+
+      - name: Upload publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cartservice-publish-${{ github.sha }}
+          path: src/cartservice/publish/
+          retention-days: 7

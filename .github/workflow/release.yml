@@ -1,0 +1,49 @@
+# .github/workflows/release.yml
+name: 🏷️ Create Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # v1.2.3
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # Retag all Docker images with semver
+      - name: Tag images with semver
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SERVICES=(frontend cartservice productcatalogservice currencyservice
+                    paymentservice shippingservice emailservice checkoutservice
+                    recommendationservice adservice loadgenerator)
+
+          for svc in "${SERVICES[@]}"; do
+            # Pull sha-tagged image and retag as semver
+            docker pull ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:sha-$(git rev-parse --short HEAD)
+            docker tag \
+              ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:sha-$(git rev-parse --short HEAD) \
+              ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:${VERSION}
+            docker push ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:${VERSION}
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: "Online Boutique v${{ steps.version.outputs.version }}"
+          body: |
+            ## 🚀 Release v${{ steps.version.outputs.version }}
+
+            ### Docker Images

@@ -1,0 +1,149 @@
+# .github/workflows/reusable-docker-build.yml
+name: Reusable — Docker Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      context:
+        required: true
+        type: string
+      platforms:
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+    outputs:
+      image-digest:
+        value: ${{ jobs.docker.outputs.digest }}
+      image-tag:
+        value: ${{ jobs.docker.outputs.tag }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/online-boutique
+
+jobs:
+  docker:
+    name: 🐳 Docker — ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write       # For OIDC + Cosign
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      # ── SETUP ─────────────────────────────────────────────
+      - uses: docker/setup-qemu-action@v3    # Multi-platform support
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
+            image=moby/buildkit:buildx-stable-1
+
+      # ── LOGIN ─────────────────────────────────────────────
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── TAG STRATEGY ──────────────────────────────────────
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}/${{ inputs.service }}
+          tags: |
+            # Semver from git tag: v1.2.3 → 1.2.3
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Branch + SHA: main-abc1234
+            type=ref,event=branch,suffix=-${{ github.sha }}
+            # Short SHA: sha-abc1234
+            type=sha,prefix=sha-,format=short
+            # Latest on main
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=${{ inputs.service }}
+            org.opencontainers.image.description=Online Boutique — ${{ inputs.service }}
+            org.opencontainers.image.vendor=Online Boutique
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # ── BUILD & PUSH ───────────────────────────────────────
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          cache-from: |
+            type=gha,scope=${{ inputs.service }}
+            type=registry,ref=${{ env.IMAGE_BASE }}/${{ inputs.service }}:cache
+          cache-to: |
+            type=gha,mode=max,scope=${{ inputs.service }}
+            type=registry,ref=${{ env.IMAGE_BASE }}/${{ inputs.service }}:cache,mode=max
+
+      # ── CONTAINER SCAN ────────────────────────────────────
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_BASE }}/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-${{ inputs.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'    # Fail pipeline on CRITICAL
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ inputs.service }}.sarif
+
+      # ── SBOM GENERATION ───────────────────────────────────
+      - name: Generate SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_BASE }}/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ inputs.service }}.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ inputs.service }}-${{ github.sha }}
+          path: sbom-${{ inputs.service }}.spdx.json
+          retention-days: 365    # Compliance retention
+
+      # ── IMAGE SIGNING ─────────────────────────────────────
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with Cosign (keyless OIDC)
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_BASE }}/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      - name: Verify image signature
+        run: |
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            ${{ env.IMAGE_BASE }}/${{ inputs.service }}@${{ steps.build.outputs.digest }}

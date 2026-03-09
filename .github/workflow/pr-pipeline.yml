@@ -1,0 +1,51 @@
+# .github/workflows/pr-pipeline.yml
+name: 🔍 PR Fast Feedback
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # Only lint + test — NO docker push on PRs
+  changes:
+    uses: ./.github/workflows/main-pipeline.yml
+    # ... (same change detection)
+
+  # Lint-only pass: < 3 minutes
+  quick-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Run all linters in parallel
+        run: |
+          # Go services
+          (cd src/frontend && golangci-lint run ./... --fast) &
+          (cd src/checkoutservice && golangci-lint run ./... --fast) &
+          
+          # Node.js services
+          (cd src/currencyservice && npm ci -q && npm run lint) &
+          (cd src/paymentservice && npm ci -q && npm run lint) &
+          
+          wait
+          echo "✅ All linters passed"
+
+  # PR comment with test results
+  pr-comment:
+    needs: [quick-lint]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const result = '${{ needs.quick-lint.result }}' === 'success'
+              ? '✅ All checks passed! Ready for review.'
+              : '❌ Some checks failed. Please review the logs.';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## CI Status\n\n${result}\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

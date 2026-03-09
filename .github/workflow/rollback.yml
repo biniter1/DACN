@@ -1,0 +1,90 @@
+# .github/workflows/rollback.yml
+name: ⏪ Emergency Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [staging, production]
+      revision:
+        description: 'Helm revision to rollback to (leave empty for previous)'
+        required: false
+        type: string
+      reason:
+        description: 'Reason for rollback (required)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: ⏪ Rollback ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Authenticate
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure kubectl
+        run: |
+          CLUSTER="${{ inputs.environment == 'production' && 'prod-cluster' || 'staging-cluster' }}"
+          gcloud container clusters get-credentials $CLUSTER \
+            --region us-central1 \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Show current status
+        run: |
+          NS="boutique-${{ inputs.environment }}"
+          echo "📊 Current Helm history:"
+          helm history boutique -n $NS
+          echo "📊 Current pods:"
+          kubectl get pods -n $NS
+
+      - name: Execute rollback
+        run: |
+          NS="boutique-${{ inputs.environment }}"
+          REVISION="${{ inputs.revision }}"
+
+          if [ -z "$REVISION" ]; then
+            echo "⏪ Rolling back to previous revision..."
+            helm rollback boutique -n $NS
+          else
+            echo "⏪ Rolling back to revision $REVISION..."
+            helm rollback boutique $REVISION -n $NS
+          fi
+
+          kubectl rollout status deployment -n $NS --timeout=5m
+          echo "✅ Rollback complete!"
+
+      - name: Create incident record
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString();
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔴 [INCIDENT] Rollback executed — ${context.payload.inputs.environment} — ${date}`,
+              body: `
+              ## Rollback Incident Record
+              
+              **Environment:** ${context.payload.inputs.environment}
+              **Triggered by:** ${context.actor}
+              **Reason:** ${context.payload.inputs.reason}
+              **Timestamp:** ${date}
+              **Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+              
+              ### Action Required
+              - [ ] Investigate root cause
+              - [ ] Fix the issue
+              - [ ] Update post-mortem
+              `,
+              labels: ['incident', 'rollback', context.payload.inputs.environment]
+            });

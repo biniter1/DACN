@@ -1,0 +1,234 @@
+# .github/workflows/reusable-helm-deploy.yml
+name: Reusable — Helm Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      cluster:
+        required: true
+        type: string
+      namespace:
+        required: true
+        type: string
+      canary:
+        required: false
+        type: boolean
+        default: false
+      image-tag:
+        required: false
+        type: string
+        default: ''
+    outputs:
+      deploy-url:
+        value: ${{ jobs.deploy.outputs.url }}
+
+jobs:
+  deploy:
+    name: Deploy → ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.get-url.outputs.url }}
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      # ── AUTHENTICATE TO GKE ───────────────────────────────
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          # No static credentials — OIDC federated identity!
+
+      - name: Setup gcloud + kubectl
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure kubectl for ${{ inputs.cluster }}
+        run: |
+          gcloud container clusters get-credentials ${{ inputs.cluster }} \
+            --region us-central1 \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      # ── NAMESPACE SETUP ───────────────────────────────────
+      - name: Ensure namespace exists
+        run: |
+          kubectl create namespace ${{ inputs.namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Apply RBAC, NetworkPolicy, LimitRange
+          kubectl apply -f k8s/namespaces/${{ inputs.environment }}/
+
+      # ── DETERMINE IMAGE TAGS ──────────────────────────────
+      - name: Build Helm values for changed services
+        id: helm-values
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          TAG="sha-${SHA_SHORT}"
+
+          # Generate --set flags for each service image
+          SETS=""
+          services=(frontend cartservice productcatalogservice currencyservice
+                     paymentservice shippingservice emailservice checkoutservice
+                     recommendationservice adservice loadgenerator)
+
+          for svc in "${services[@]}"; do
+            SETS+="--set images.${svc}.tag=${TAG} "
+          done
+
+          echo "helm_sets=${SETS}" >> $GITHUB_OUTPUT
+          echo "image_tag=${TAG}" >> $GITHUB_OUTPUT
+
+      # ── CANARY DEPLOY (Production) ────────────────────────
+      - name: Canary Deploy Phase 1 (10%)
+        if: inputs.canary == true
+        run: |
+          helm upgrade --install boutique-canary ./helm-chart \
+            --namespace ${{ inputs.namespace }} \
+            --values helm-chart/values-${{ inputs.environment }}.yaml \
+            ${{ steps.helm-values.outputs.helm_sets }} \
+            --set canary.enabled=true \
+            --set canary.weight=10 \
+            --atomic \
+            --timeout 5m \
+            --wait
+
+      - name: Monitor canary health (10 min)
+        if: inputs.canary == true
+        run: |
+          echo "Monitoring canary for 10 minutes..."
+          ENDPOINT="https://boutique-production.example.com/health"
+          ERROR_COUNT=0
+          
+          for i in $(seq 1 60); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT")
+            if [ "$HTTP_CODE" != "200" ]; then
+              ERROR_COUNT=$((ERROR_COUNT + 1))
+              echo "⚠️ Error detected: $HTTP_CODE (count: $ERROR_COUNT)"
+            fi
+            
+            if [ "$ERROR_COUNT" -gt 5 ]; then
+              echo "❌ Too many errors! Triggering rollback..."
+              helm rollback boutique-canary -n ${{ inputs.namespace }}
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "✅ Canary healthy! Proceeding to full rollout..."
+
+      # ── FULL HELM DEPLOY ──────────────────────────────────
+      - name: Helm upgrade — Full deploy
+        run: |
+          helm upgrade --install boutique ./helm-chart \
+            --namespace ${{ inputs.namespace }} \
+            --values helm-chart/values-${{ inputs.environment }}.yaml \
+            ${{ steps.helm-values.outputs.helm_sets }} \
+            --set canary.enabled=false \
+            --atomic \
+            --timeout 10m \
+            --wait \
+            --history-max 10   # Keep last 10 revisions for rollback
+
+      # ── POST-DEPLOY VALIDATION ────────────────────────────
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment \
+            --namespace ${{ inputs.namespace }} \
+            --timeout=5m
+          
+          echo "📊 Pod status:"
+          kubectl get pods -n ${{ inputs.namespace }} -o wide
+          
+          echo "📊 Service status:"
+          kubectl get services -n ${{ inputs.namespace }}
+
+      - name: Health check
+        run: |
+          sleep 20
+          ENDPOINT="${{ steps.get-url.outputs.url }}/health"
+          for i in 1 2 3; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT")
+            if [ "$HTTP" == "200" ]; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i failed ($HTTP), retrying in 15s..."
+            sleep 15
+          done
+          echo "❌ Health check failed after 3 attempts"
+          exit 1
+
+      - name: Get deployment URL
+        id: get-url
+        run: |
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            echo "url=https://boutique.example.com" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://staging.boutique.example.com" >> $GITHUB_OUTPUT
+          fi
+
+      # ── NOTIFY ────────────────────────────────────────────
+      - name: Notify Slack — Success
+        uses: slackapi/slack-github-action@v1.26.0
+        if: success()
+        with:
+          payload: |
+            {
+              "text": "✅ *${{ inputs.environment }}* deploy successful!\n*Services:* Online Boutique\n*Tag:* `${{ steps.helm-values.outputs.image_tag }}`\n*URL:* ${{ steps.get-url.outputs.url }}\n*Triggered by:* ${{ github.actor }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack — Failure
+        uses: slackapi/slack-github-action@v1.26.0
+        if: failure()
+        with:
+          payload: |
+            {
+              "text": "❌ *${{ inputs.environment }}* deploy FAILED!\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Triggered by:* ${{ github.actor }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ── AUTO ROLLBACK IF DEPLOY FAILS ────────────────────────
+  rollback-on-failure:
+    name: ⏪ Auto Rollback
+    needs: deploy
+    if: failure() && inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: |
+          gcloud container clusters get-credentials ${{ inputs.cluster }} \
+            --region us-central1 \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Helm rollback to previous version
+        run: |
+          echo "⏪ Rolling back boutique in ${{ inputs.namespace }}..."
+          helm rollback boutique -n ${{ inputs.namespace }}
+          kubectl rollout status deployment -n ${{ inputs.namespace }} --timeout=5m
+          echo "✅ Rollback complete!"
+
+      - name: Alert on rollback
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ *PRODUCTION ROLLBACK EXECUTED*\nDeploy failed — automatically rolled back to previous version.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
