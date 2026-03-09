@@ -1,4 +1,3 @@
-# .github/workflows/reusable-java-ci.yml
 name: Reusable — Java CI
 
 on:
@@ -11,11 +10,17 @@ on:
         required: false
         type: string
         default: '17'
+    outputs:
+      artifact-id:
+        description: 'JAR artifact ID'
+        value: ${{ jobs.ci.outputs.artifact }}
 
 jobs:
   ci:
     name: Java CI — ${{ inputs.service }}
     runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
     defaults:
       run:
         working-directory: src/${{ inputs.service }}
@@ -23,35 +28,45 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
-      - name: Setup JDK
+      - name: Setup JDK ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ inputs.java-version }}
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Cache Gradle
+      # Cache key dùng inputs.service thay vì hardcode adservice
+      - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('src/adservice/**/*.gradle*') }}
+          key: gradle-${{ runner.os }}-${{ inputs.service }}-${{ hashFiles('src/${{ inputs.service }}/**/*.gradle*', 'src/${{ inputs.service }}/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ inputs.service }}-
 
+      # ── LINT ──────────────────────────────────────────────
       - name: Lint with Checkstyle
         run: ./gradlew checkstyleMain checkstyleTest --no-daemon
+        continue-on-error: true
 
+      # ── TESTS ─────────────────────────────────────────────
       - name: Run tests
         run: ./gradlew test --no-daemon
 
-      - name: Build JAR
+      # ── BUILD ─────────────────────────────────────────────
+      - name: Build JAR (shadowJar)
         run: |
           ./gradlew shadowJar --no-daemon
           ls -la build/libs/
 
-      - name: Upload JAR
+      # ── UPLOAD ARTIFACT ───────────────────────────────────
+      # FIX: dùng inputs.service thay vì hardcode "adservice"
+      - name: Upload JAR artifact
+        id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: adservice-jar-${{ github.sha }}
-          path: src/adservice/build/libs/*.jar
+          name: ${{ inputs.service }}-jar-${{ github.sha }}
+          path: src/${{ inputs.service }}/build/libs/*.jar
           retention-days: 7

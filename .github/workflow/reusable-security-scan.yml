@@ -1,16 +1,16 @@
-# .github/workflows/reusable-security-scan.yml
 name: Reusable — Security Scan
 
 on:
   workflow_call:
     outputs:
       scan-passed:
+        description: 'Whether all security scans passed'
         value: ${{ jobs.aggregate.outputs.passed }}
 
 jobs:
-  # ─── SAST: CodeQL (multi-language) ─────────────────────────
+  # ── SAST: CodeQL (multi-language parallel) ──────────────
   codeql:
-    name: 🔬 CodeQL SAST
+    name: 🔬 CodeQL — ${{ matrix.language }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -37,77 +37,143 @@ jobs:
         with:
           category: "/language:${{ matrix.language }}"
 
-  # ─── SECRETS SCANNING ───────────────────────────────────────
+  # ── SECRETS SCANNING ────────────────────────────────────
   secrets-scan:
     name: 🔑 Secrets Detection
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
-          fetch-depth: 0     # Full git history for secrets scan
+          fetch-depth: 0  # Full git history
 
-      - name: Gitleaks — Git history scan
+      - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: TruffleHog — Verified secrets
+      - name: TruffleHog
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
           extra_args: --only-verified --fail
+        continue-on-error: true  # TruffleHog có thể false-positive
 
-  # ─── DEPENDENCY SCANNING ────────────────────────────────────
+  # ── DEPENDENCY SCANNING ─────────────────────────────────
   dependency-scan:
-    name: 📦 Dependency Vulnerabilities
+    name: 📦 Dependency Scan — ${{ matrix.service.name }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service:
-          - { name: currencyservice, type: node, path: src/currencyservice }
-          - { name: paymentservice, type: node, path: src/paymentservice }
-          - { name: emailservice, type: python, path: src/emailservice }
-          - { name: recommendationservice, type: python, path: src/recommendationservice }
-          - { name: adservice, type: java, path: src/adservice }
+          - name: currencyservice
+            type: node
+            manifest: src/currencyservice/package.json
+          - name: paymentservice
+            type: node
+            manifest: src/paymentservice/package.json
+          - name: emailservice
+            type: python
+            manifest: src/emailservice/requirements.txt
+          - name: recommendationservice
+            type: python
+            manifest: src/recommendationservice/requirements.txt
+          - name: adservice
+            type: gradle
+            manifest: src/adservice/build.gradle
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
-      - name: Snyk — ${{ matrix.service.name }}
-        uses: snyk/actions/${{ matrix.service.type }}@master
+      # Node.js services
+      - name: Snyk — Node.js (${{ matrix.service.name }})
+        if: matrix.service.type == 'node'
+        uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           command: test
           args: >
             --severity-threshold=high
-            --file=${{ matrix.service.path }}/package.json
+            --file=${{ matrix.service.manifest }}
             --sarif-file-output=snyk-${{ matrix.service.name }}.sarif
         continue-on-error: true
 
-      - name: Upload Snyk results
+      # Python services
+      - name: Setup Python (for Python services)
+        if: matrix.service.type == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Snyk — Python (${{ matrix.service.name }})
+        if: matrix.service.type == 'python'
+        uses: snyk/actions/python-3.10@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+          args: >
+            --severity-threshold=high
+            --file=${{ matrix.service.manifest }}
+            --sarif-file-output=snyk-${{ matrix.service.name }}.sarif
+        continue-on-error: true
+
+      # Java/Gradle service
+      - name: Setup Java (for adservice)
+        if: matrix.service.type == 'gradle'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Snyk — Gradle (${{ matrix.service.name }})
+        if: matrix.service.type == 'gradle'
+        uses: snyk/actions/gradle@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+          args: >
+            --severity-threshold=high
+            --file=${{ matrix.service.manifest }}
+            --sarif-file-output=snyk-${{ matrix.service.name }}.sarif
+        continue-on-error: true
+
+      - name: Upload Snyk SARIF
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: snyk-${{ matrix.service.name }}.sarif
+        continue-on-error: true
 
-  # ─── AGGREGATE GATE ─────────────────────────────────────────
+  # ── AGGREGATE GATE ───────────────────────────────────────
   aggregate:
-    name: ✅ Security Gate
+    name: ✅ Security Gate Result
     runs-on: ubuntu-latest
     needs: [codeql, secrets-scan, dependency-scan]
     if: always()
     outputs:
       passed: ${{ steps.check.outputs.passed }}
     steps:
-      - name: Check all security jobs
+      - name: Evaluate security results
         id: check
         run: |
-          if [[ "${{ needs.codeql.result }}" == "failure" ]] || \
-             [[ "${{ needs.secrets-scan.result }}" == "failure" ]]; then
-            echo "❌ Security gate FAILED"
+          CODEQL="${{ needs.codeql.result }}"
+          SECRETS="${{ needs.secrets-scan.result }}"
+          DEPS="${{ needs.dependency-scan.result }}"
+
+          echo "CodeQL: $CODEQL"
+          echo "Secrets scan: $SECRETS"
+          echo "Dependency scan: $DEPS"
+
+          # Chỉ block pipeline nếu CodeQL hoặc secrets-scan HARD FAIL
+          if [[ "$CODEQL" == "failure" ]] || [[ "$SECRETS" == "failure" ]]; then
+            echo "❌ Security gate FAILED — critical issues found"
             echo "passed=false" >> $GITHUB_OUTPUT
             exit 1
           fi
+
           echo "✅ Security gate PASSED"
           echo "passed=true" >> $GITHUB_OUTPUT

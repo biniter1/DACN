@@ -1,0 +1,77 @@
+name: 'Helm Deploy'
+description: 'Deploy to Kubernetes via Helm with rollback support'
+
+inputs:
+  release-name:
+    description: 'Helm release name'
+    required: false
+    default: 'boutique'
+  chart-path:
+    description: 'Path to Helm chart'
+    required: false
+    default: './helm-chart'
+  namespace:
+    description: 'Kubernetes namespace'
+    required: true
+  values-file:
+    description: 'Helm values file path'
+    required: true
+  extra-set-args:
+    description: 'Additional --set arguments'
+    required: false
+    default: ''
+  timeout:
+    description: 'Helm timeout'
+    required: false
+    default: '10m'
+  atomic:
+    description: 'Use --atomic flag (auto-rollback on failure)'
+    required: false
+    default: 'true'
+
+outputs:
+  deployed-revision:
+    description: 'Helm revision number deployed'
+    value: ${{ steps.deploy.outputs.revision }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Ensure namespace exists
+      shell: bash
+      run: |
+        kubectl create namespace ${{ inputs.namespace }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Helm deploy
+      id: deploy
+      shell: bash
+      run: |
+        ATOMIC_FLAG=""
+        if [ "${{ inputs.atomic }}" == "true" ]; then
+          ATOMIC_FLAG="--atomic"
+        fi
+
+        helm upgrade --install ${{ inputs.release-name }} ${{ inputs.chart-path }} \
+          --namespace ${{ inputs.namespace }} \
+          --values ${{ inputs.values-file }} \
+          ${{ inputs.extra-set-args }} \
+          $ATOMIC_FLAG \
+          --timeout ${{ inputs.timeout }} \
+          --wait \
+          --history-max 10
+
+        # Get revision number
+        REVISION=$(helm history ${{ inputs.release-name }} -n ${{ inputs.namespace }} \
+          --max 1 --output json | jq -r '.[0].revision')
+        echo "revision=$REVISION" >> $GITHUB_OUTPUT
+        echo "✅ Deployed revision: $REVISION"
+
+    - name: Verify rollout
+      shell: bash
+      run: |
+        kubectl rollout status deployment \
+          --namespace ${{ inputs.namespace }} \
+          --timeout=5m
+        echo "📊 Pod status:"
+        kubectl get pods -n ${{ inputs.namespace }}

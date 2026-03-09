@@ -1,0 +1,61 @@
+name: 'Notify Slack'
+description: 'Send deployment notification to Slack'
+
+inputs:
+  status:
+    description: 'Status: success | failure | rollback'
+    required: true
+  environment:
+    description: 'Environment name'
+    required: true
+  service:
+    description: 'Service or app name'
+    required: false
+    default: 'Online Boutique'
+  image-tag:
+    description: 'Docker image tag deployed'
+    required: false
+    default: ''
+  deploy-url:
+    description: 'Deployed application URL'
+    required: false
+    default: ''
+  slack-webhook-url:
+    description: 'Slack Webhook URL'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send Slack notification
+      shell: bash
+      run: |
+        STATUS="${{ inputs.status }}"
+        ENV="${{ inputs.environment }}"
+        SERVICE="${{ inputs.service }}"
+        TAG="${{ inputs.image-tag }}"
+        URL="${{ inputs.deploy-url }}"
+        ACTOR="${{ github.actor }}"
+        RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+        case "$STATUS" in
+          success)
+            EMOJI="✅"
+            TEXT="*${EMOJI} Deploy thành công!*\n*Service:* ${SERVICE}\n*Env:* ${ENV}\n*Tag:* \`${TAG}\`\n*URL:* ${URL}\n*By:* ${ACTOR}"
+            ;;
+          failure)
+            EMOJI="❌"
+            TEXT="*${EMOJI} Deploy THẤT BẠI!*\n*Service:* ${SERVICE}\n*Env:* ${ENV}\n*Run:* ${RUN_URL}\n*By:* ${ACTOR}"
+            ;;
+          rollback)
+            EMOJI="⏪"
+            TEXT="*${EMOJI} ROLLBACK được thực hiện!*\n*Service:* ${SERVICE}\n*Env:* ${ENV}\n*Run:* ${RUN_URL}\n*By:* ${ACTOR}"
+            ;;
+          *)
+            TEXT="ℹ️ Pipeline update: ${SERVICE} — ${ENV} — ${STATUS}"
+            ;;
+        esac
+
+        curl -s -X POST "${{ inputs.slack-webhook-url }}" \
+          -H 'Content-type: application/json' \
+          --data "{\"text\": \"${TEXT}\"}" || echo "⚠️ Slack notification failed (non-blocking)"

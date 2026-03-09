@@ -1,5 +1,4 @@
-# .github/workflows/release.yml
-name: 🏷️ Create Release
+name: 🏷️ Create Release (AWS ECR)
 
 on:
   push:
@@ -8,36 +7,66 @@ on:
 
 jobs:
   release:
+    name: 🏷️ Tag & Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+      id-token: write   # AWS OIDC
+
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           fetch-depth: 0
 
-      - name: Extract version
+      - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Creating release v$VERSION"
 
-      # Retag all Docker images with semver
-      - name: Tag images with semver
+      # ── AWS AUTH ──────────────────────────────────────────
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── RETAG IMAGES với semver ───────────────────────────
+      - name: Retag all service images with semver
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SERVICES=(frontend cartservice productcatalogservice currencyservice
-                    paymentservice shippingservice emailservice checkoutservice
-                    recommendationservice adservice loadgenerator)
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+
+          SERVICES=(
+            frontend cartservice productcatalogservice
+            currencyservice paymentservice shippingservice
+            emailservice checkoutservice recommendationservice
+            adservice loadgenerator
+          )
 
           for svc in "${SERVICES[@]}"; do
-            # Pull sha-tagged image and retag as semver
-            docker pull ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:sha-$(git rev-parse --short HEAD)
-            docker tag \
-              ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:sha-$(git rev-parse --short HEAD) \
-              ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:${VERSION}
-            docker push ghcr.io/${{ github.repository_owner }}/online-boutique/${svc}:${VERSION}
+            SRC="${REGISTRY}/online-boutique/${svc}:sha-${SHA_SHORT}"
+            DST="${REGISTRY}/online-boutique/${svc}:${VERSION}"
+
+            echo "🏷️ Tagging ${svc}: sha-${SHA_SHORT} → ${VERSION}"
+
+            # Pull sha-tagged, push as semver
+            docker pull "$SRC" || {
+              echo "⚠️ Image $SRC not found, skipping $svc"
+              continue
+            }
+            docker tag "$SRC" "$DST"
+            docker push "$DST"
+            echo "✅ ${svc}:${VERSION} pushed"
           done
 
+      # ── CREATE GITHUB RELEASE ─────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -46,4 +75,27 @@ jobs:
           body: |
             ## 🚀 Release v${{ steps.version.outputs.version }}
 
-            ### Docker Images
+            ### Docker Images (AWS ECR)
+            ```
+            ECR_REGISTRY=${{ steps.ecr-login.outputs.registry }}
+
+            # Pull any service:
+            docker pull ${ECR_REGISTRY}/online-boutique/frontend:${{ steps.version.outputs.version }}
+            docker pull ${ECR_REGISTRY}/online-boutique/adservice:${{ steps.version.outputs.version }}
+            # ... (all 11 services available)
+            ```
+
+            ### Deploy specific version to EKS
+            ```bash
+            SHA_SHORT=$(git rev-parse --short HEAD)
+
+            helm upgrade boutique ./helm-chart \
+              --namespace boutique-production \
+              --set global.imageTag=${{ steps.version.outputs.version }} \
+              --atomic --wait
+            ```
+
+            ### Rollback
+            ```bash
+            helm rollback boutique -n boutique-production
+            ```

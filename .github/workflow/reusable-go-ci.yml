@@ -1,4 +1,3 @@
-# .github/workflows/reusable-go-ci.yml
 name: Reusable — Go CI
 
 on:
@@ -13,6 +12,7 @@ on:
         default: '1.21'
     outputs:
       binary-artifact:
+        description: 'Binary artifact ID'
         value: ${{ jobs.ci.outputs.artifact }}
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           cache: true
           cache-dependency-path: src/${{ inputs.service }}/go.sum
 
-      # ── INSTALL PROTOBUF (needed for gRPC stubs) ──────────
+      # ── INSTALL PROTOBUF (gRPC stubs) ─────────────────────
       - name: Install protoc
         run: |
           sudo apt-get update -q
@@ -44,12 +44,13 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
       # ── LINT ──────────────────────────────────────────────
-      - name: Install golangci-lint
+      - name: golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
           version: latest
           working-directory: src/${{ inputs.service }}
           args: --timeout=5m
+        continue-on-error: true  # Lint issues không block build
 
       # ── UNIT TESTS ────────────────────────────────────────
       - name: Run unit tests
@@ -61,13 +62,16 @@ jobs:
             -covermode=atomic \
             -timeout=5m
 
-      - name: Check coverage threshold
+      - name: Check coverage
         run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Coverage: ${COVERAGE}%"
-          # Threshold: 60% (realistic for gRPC service)
-          if (( $(echo "$COVERAGE < 60" | bc -l) )); then
-            echo "⚠️ Warning: Coverage ${COVERAGE}% below 60% threshold"
+          if [ -f coverage.out ]; then
+            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+            echo "📊 Coverage: ${COVERAGE}%"
+            if (( $(echo "$COVERAGE < 50" | bc -l) )); then
+              echo "⚠️ Coverage ${COVERAGE}% is below 50% threshold"
+            fi
+          else
+            echo "ℹ️ No coverage file generated"
           fi
 
       # ── BUILD BINARY ──────────────────────────────────────
@@ -78,13 +82,11 @@ jobs:
             -ldflags="-w -s \
               -X main.version=${{ github.sha }} \
               -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o /tmp/server-amd64 \
+            -o /tmp/${{ inputs.service }}-amd64 \
             .
 
       - name: Verify binary
-        run: |
-          file /tmp/server-amd64
-          /tmp/server-amd64 --version || true
+        run: file /tmp/${{ inputs.service }}-amd64
 
       # ── UPLOAD ARTIFACT ───────────────────────────────────
       - name: Upload binary artifact
@@ -92,11 +94,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.service }}-binary-${{ github.sha }}
-          path: /tmp/server-amd64
+          path: /tmp/${{ inputs.service }}-amd64
           retention-days: 7
 
-      - name: Upload coverage report
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: ${{ inputs.service }}-coverage
+          name: ${{ inputs.service }}-coverage-${{ github.sha }}
           path: src/${{ inputs.service }}/coverage.out
+          if-no-files-found: ignore

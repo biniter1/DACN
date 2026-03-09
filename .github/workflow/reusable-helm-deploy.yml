@@ -1,5 +1,4 @@
-# .github/workflows/reusable-helm-deploy.yml
-name: Reusable — Helm Deploy
+name: Reusable — Helm Deploy (AWS EKS)
 
 on:
   workflow_call:
@@ -23,6 +22,7 @@ on:
         default: ''
     outputs:
       deploy-url:
+        description: 'Deployed app URL'
         value: ${{ jobs.deploy.outputs.url }}
 
 jobs:
@@ -38,54 +38,55 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
-      # ── AUTHENTICATE TO GKE ───────────────────────────────
-      - name: Authenticate to Google Cloud (OIDC)
-        uses: google-github-actions/auth@v2
+      # ── AWS OIDC AUTH ─────────────────────────────────────
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          # No static credentials — OIDC federated identity!
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
 
-      - name: Setup gcloud + kubectl
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure kubectl for ${{ inputs.cluster }}
+      # ── CONFIGURE KUBECTL FOR EKS ─────────────────────────
+      - name: Setup kubectl for EKS
         run: |
-          gcloud container clusters get-credentials ${{ inputs.cluster }} \
-            --region us-central1 \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+          aws eks update-kubeconfig \
+            --name ${{ inputs.cluster }} \
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+          kubectl cluster-info
+
+      # ── INSTALL HELM ──────────────────────────────────────
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
 
       # ── NAMESPACE SETUP ───────────────────────────────────
       - name: Ensure namespace exists
         run: |
           kubectl create namespace ${{ inputs.namespace }} \
             --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Apply RBAC, NetworkPolicy, LimitRange
-          kubectl apply -f k8s/namespaces/${{ inputs.environment }}/
 
-      # ── DETERMINE IMAGE TAGS ──────────────────────────────
-      - name: Build Helm values for changed services
+      # ── BUILD IMAGE TAG ───────────────────────────────────
+      - name: Build image tag and Helm --set flags
         id: helm-values
         run: |
           SHA_SHORT=$(git rev-parse --short HEAD)
           TAG="sha-${SHA_SHORT}"
+          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION || 'ap-southeast-1' }}.amazonaws.com"
 
-          # Generate --set flags for each service image
           SETS=""
           services=(frontend cartservice productcatalogservice currencyservice
                      paymentservice shippingservice emailservice checkoutservice
                      recommendationservice adservice loadgenerator)
-
           for svc in "${services[@]}"; do
+            SETS+="--set images.${svc}.repository=${ECR_REGISTRY}/online-boutique/${svc} "
             SETS+="--set images.${svc}.tag=${TAG} "
           done
 
           echo "helm_sets=${SETS}" >> $GITHUB_OUTPUT
           echo "image_tag=${TAG}" >> $GITHUB_OUTPUT
 
-      # ── CANARY DEPLOY (Production) ────────────────────────
-      - name: Canary Deploy Phase 1 (10%)
+      # ── CANARY DEPLOY (chỉ Production) ───────────────────
+      - name: Canary Deploy Phase 1 — 10% traffic
         if: inputs.canary == true
         run: |
           helm upgrade --install boutique-canary ./helm-chart \
@@ -98,30 +99,31 @@ jobs:
             --timeout 5m \
             --wait
 
-      - name: Monitor canary health (10 min)
+      - name: Monitor canary — 10 minutes
         if: inputs.canary == true
         run: |
-          echo "Monitoring canary for 10 minutes..."
-          ENDPOINT="https://boutique-production.example.com/health"
+          echo "🔍 Monitoring canary for 10 minutes..."
           ERROR_COUNT=0
-          
+          ENDPOINT="${{ steps.get-url.outputs.url }}/health"
+
           for i in $(seq 1 60); do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT")
-            if [ "$HTTP_CODE" != "200" ]; then
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT" || echo "000")
+            if [ "$HTTP" != "200" ]; then
               ERROR_COUNT=$((ERROR_COUNT + 1))
-              echo "⚠️ Error detected: $HTTP_CODE (count: $ERROR_COUNT)"
+              echo "⚠️ [${i}/60] Error: HTTP $HTTP (total errors: $ERROR_COUNT)"
+            else
+              echo "✅ [${i}/60] Healthy"
             fi
-            
             if [ "$ERROR_COUNT" -gt 5 ]; then
-              echo "❌ Too many errors! Triggering rollback..."
-              helm rollback boutique-canary -n ${{ inputs.namespace }}
+              echo "❌ Error threshold exceeded! Rolling back canary..."
+              helm rollback boutique-canary -n ${{ inputs.namespace }} || true
               exit 1
             fi
             sleep 10
           done
-          echo "✅ Canary healthy! Proceeding to full rollout..."
+          echo "✅ Canary healthy — proceeding to full rollout"
 
-      # ── FULL HELM DEPLOY ──────────────────────────────────
+      # ── FULL DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — Full deploy
         run: |
           helm upgrade --install boutique ./helm-chart \
@@ -132,36 +134,16 @@ jobs:
             --atomic \
             --timeout 10m \
             --wait \
-            --history-max 10   # Keep last 10 revisions for rollback
+            --history-max 10
 
-      # ── POST-DEPLOY VALIDATION ────────────────────────────
+      # ── POST-DEPLOY VERIFY ────────────────────────────────
       - name: Verify rollout
         run: |
           kubectl rollout status deployment \
             --namespace ${{ inputs.namespace }} \
             --timeout=5m
-          
-          echo "📊 Pod status:"
+          echo "📊 Pods:"
           kubectl get pods -n ${{ inputs.namespace }} -o wide
-          
-          echo "📊 Service status:"
-          kubectl get services -n ${{ inputs.namespace }}
-
-      - name: Health check
-        run: |
-          sleep 20
-          ENDPOINT="${{ steps.get-url.outputs.url }}/health"
-          for i in 1 2 3; do
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT")
-            if [ "$HTTP" == "200" ]; then
-              echo "✅ Health check passed!"
-              exit 0
-            fi
-            echo "Attempt $i failed ($HTTP), retrying in 15s..."
-            sleep 15
-          done
-          echo "❌ Health check failed after 3 attempts"
-          exit 1
 
       - name: Get deployment URL
         id: get-url
@@ -172,30 +154,46 @@ jobs:
             echo "url=https://staging.boutique.example.com" >> $GITHUB_OUTPUT
           fi
 
-      # ── NOTIFY ────────────────────────────────────────────
+      - name: Health check post-deploy
+        run: |
+          sleep 20
+          ENDPOINT="${{ steps.get-url.outputs.url }}"
+          for i in 1 2 3; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT" || echo "000")
+            if [ "$HTTP" == "200" ]; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP — retrying in 15s..."
+            sleep 15
+          done
+          echo "❌ Health check failed after 3 attempts"
+          exit 1
+
+      # ── SLACK NOTIFY ──────────────────────────────────────
       - name: Notify Slack — Success
+        if: success() && secrets.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
-        if: success()
         with:
           payload: |
             {
-              "text": "✅ *${{ inputs.environment }}* deploy successful!\n*Services:* Online Boutique\n*Tag:* `${{ steps.helm-values.outputs.image_tag }}`\n*URL:* ${{ steps.get-url.outputs.url }}\n*Triggered by:* ${{ github.actor }}"
+              "text": "✅ *${{ inputs.environment }}* deploy thành công!\n*Tag:* `${{ steps.helm-values.outputs.image_tag }}`\n*URL:* ${{ steps.get-url.outputs.url }}\n*By:* ${{ github.actor }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: Notify Slack — Failure
+        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
-        if: failure()
         with:
           payload: |
             {
-              "text": "❌ *${{ inputs.environment }}* deploy FAILED!\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Triggered by:* ${{ github.actor }}"
+              "text": "❌ *${{ inputs.environment }}* deploy THẤT BẠI!\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*By:* ${{ github.actor }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-  # ── AUTO ROLLBACK IF DEPLOY FAILS ────────────────────────
+  # ── AUTO ROLLBACK KHI PRODUCTION FAIL ────────────────────
   rollback-on-failure:
     name: ⏪ Auto Rollback
     needs: deploy
@@ -203,32 +201,32 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ inputs.cluster }} \
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
 
-      - run: |
-          gcloud container clusters get-credentials ${{ inputs.cluster }} \
-            --region us-central1 \
-            --project ${{ secrets.GCP_PROJECT_ID }}
-
-      - name: Helm rollback to previous version
+      - name: Helm rollback
         run: |
           echo "⏪ Rolling back boutique in ${{ inputs.namespace }}..."
           helm rollback boutique -n ${{ inputs.namespace }}
           kubectl rollout status deployment -n ${{ inputs.namespace }} --timeout=5m
           echo "✅ Rollback complete!"
 
-      - name: Alert on rollback
+      - name: Alert Slack on rollback
+        if: secrets.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.26.0
         with:
           payload: |
             {
-              "text": "⚠️ *PRODUCTION ROLLBACK EXECUTED*\nDeploy failed — automatically rolled back to previous version.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "text": "⚠️ *PRODUCTION ROLLBACK THỰC HIỆN*\nDeploy thất bại — đã rollback về phiên bản trước.\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

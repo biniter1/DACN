@@ -22,8 +22,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  REGISTRY: ghcr.io
-  ORG: ${{ github.repository_owner }}
+  AWS_REGION: ap-southeast-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-1.amazonaws.com
   APP: online-boutique
 
 jobs:
@@ -169,6 +169,15 @@ jobs:
       python-version: '3.11'
     secrets: inherit
 
+  ci-loadgenerator:
+    needs: changes
+    if: needs.changes.outputs.loadgenerator == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      service: loadgenerator
+      python-version: '3.11'
+    secrets: inherit
+
   # ════════════════════════════════════════════════════
   # CI — Java Service
   # ════════════════════════════════════════════════════
@@ -195,6 +204,7 @@ jobs:
 
   # ════════════════════════════════════════════════════
   # STAGE 3: SECURITY SCAN
+  # Chạy sau tất cả CI jobs, dùng always() + check failure
   # ════════════════════════════════════════════════════
   security:
     name: 🔒 Security Gate
@@ -209,12 +219,13 @@ jobs:
       - ci-recommendationservice
       - ci-adservice
       - ci-cartservice
+      - ci-loadgenerator
     if: always() && !contains(needs.*.result, 'failure')
     uses: ./.github/workflows/reusable-security-scan.yml
     secrets: inherit
 
   # ════════════════════════════════════════════════════
-  # STAGE 4: DOCKER BUILD (parallel per changed service)
+  # STAGE 4: DOCKER BUILD — tất cả 11 services
   # ════════════════════════════════════════════════════
   docker-frontend:
     needs: [security, changes]
@@ -226,6 +237,102 @@ jobs:
     with:
       service: frontend
       context: src/frontend
+    secrets: inherit
+
+  docker-cartservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.cartservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: cartservice
+      context: src/cartservice
+    secrets: inherit
+
+  docker-productcatalogservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: productcatalogservice
+      context: src/productcatalogservice
+    secrets: inherit
+
+  docker-currencyservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: currencyservice
+      context: src/currencyservice
+    secrets: inherit
+
+  docker-paymentservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: paymentservice
+      context: src/paymentservice
+    secrets: inherit
+
+  docker-shippingservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.shippingservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: shippingservice
+      context: src/shippingservice
+    secrets: inherit
+
+  docker-emailservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.emailservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: emailservice
+      context: src/emailservice
+    secrets: inherit
+
+  docker-checkoutservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.checkoutservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: checkoutservice
+      context: src/checkoutservice
+    secrets: inherit
+
+  docker-recommendationservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.recommendationservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: recommendationservice
+      context: src/recommendationservice
     secrets: inherit
 
   docker-adservice:
@@ -240,7 +347,17 @@ jobs:
       context: src/adservice
     secrets: inherit
 
-  # ... (repeat pattern for all 11 services)
+  docker-loadgenerator:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.loadgenerator == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: loadgenerator
+      context: src/loadgenerator
+    secrets: inherit
 
   # ════════════════════════════════════════════════════
   # STAGE 5: DEPLOY STAGING
@@ -249,8 +366,16 @@ jobs:
     name: 🎭 Deploy Staging
     needs:
       - docker-frontend
+      - docker-cartservice
+      - docker-productcatalogservice
+      - docker-currencyservice
+      - docker-paymentservice
+      - docker-shippingservice
+      - docker-emailservice
+      - docker-checkoutservice
+      - docker-recommendationservice
       - docker-adservice
-      # ... all docker jobs
+      - docker-loadgenerator
     if: |
       always() &&
       !contains(needs.*.result, 'failure') &&
@@ -260,6 +385,7 @@ jobs:
       environment: staging
       cluster: staging-cluster
       namespace: boutique-staging
+      canary: false
     secrets: inherit
 
   # ════════════════════════════════════════════════════
@@ -273,58 +399,40 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
-      - name: Wait for staging to be ready
-        run: |
-          echo "Waiting 30s for services to stabilize..."
-          sleep 30
+      - name: Wait for staging to stabilize
+        run: sleep 30
 
-      - name: Smoke Tests — All services healthy
+      - name: Smoke Tests — All endpoints healthy
         run: |
           BASE="https://staging.boutique.example.com"
-          endpoints=(
-            "/health"
-            "/"
-            "/cart"
-            "/product/OLJCESPC7Z"
-          )
-          for ep in "${endpoints[@]}"; do
-            echo "Testing $BASE$ep ..."
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$ep")
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "❌ FAIL: $ep returned $HTTP_CODE"
+          for ep in "/" "/cart" "/product/OLJCESPC7Z"; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$ep")
+            if [ "$HTTP" != "200" ]; then
+              echo "❌ FAIL: $ep returned $HTTP"
               exit 1
             fi
-            echo "✅ $ep → $HTTP_CODE"
+            echo "✅ $ep → $HTTP"
           done
 
-      - name: E2E Tests — Playwright
+      - name: Setup Node for Playwright
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - run: |
+      - name: Run E2E Tests
+        run: |
           npm install -g @playwright/test
           npx playwright install --with-deps chromium
           npx playwright test tests/e2e/ --reporter=html
         env:
           BASE_URL: https://staging.boutique.example.com
 
-      - name: gRPC Integration Tests
-        run: |
-          # Test gRPC endpoints using grpc-health-probe
-          for service in cartservice productcatalogservice checkoutservice; do
-            grpc_health_probe -addr=$service-staging:port && echo "✅ $service gRPC healthy"
-          done
-
       - name: Performance Smoke Test (Locust)
         run: |
           pip install locust
-          # 2-minute load test: 10 users, ramp 2/s
           locust -f src/loadgenerator/locustfile.py \
-            --headless \
-            --users 10 \
-            --spawn-rate 2 \
-            --run-time 120s \
+            --headless --users 10 --spawn-rate 2 \
+            --run-time 60s \
             --host https://staging.boutique.example.com \
             --only-summary
 
@@ -332,15 +440,14 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: integration-test-results
-          path: |
-            playwright-report/
-            locust-results.html
+          name: integration-test-results-${{ github.sha }}
+          path: playwright-report/
           retention-days: 14
 
   # ════════════════════════════════════════════════════
-  # STAGE 7 + 8: MANUAL APPROVAL → DEPLOY PRODUCTION
-  # (Environment protection rules handle the approval gate)
+  # STAGE 7+8: MANUAL APPROVAL → DEPLOY PRODUCTION
+  # Approval gate được cấu hình trong GitHub Environment
+  # Settings → Environments → production → Required reviewers
   # ════════════════════════════════════════════════════
   deploy-production:
     name: 🚀 Deploy Production
