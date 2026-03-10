@@ -25,6 +25,12 @@ env:
   AWS_REGION: ap-southeast-2
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
   APP: online-boutique
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  security-events: write
+  packages: write
 
 jobs:
   # ════════════════════════════════════════════════════
