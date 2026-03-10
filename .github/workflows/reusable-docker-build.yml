@@ -45,7 +45,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
 
       # ── LOGIN TO ECR ──────────────────────────────────────
       - name: Login to Amazon ECR
@@ -106,7 +106,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
-        continue-on-error: true  # Không block pipeline, upload report để review
+        continue-on-error: true  
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3

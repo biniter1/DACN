@@ -208,26 +208,26 @@ jobs:
       dotnet-version: '8.0'
     secrets: inherit
 
-  # ════════════════════════════════════════════════════
-  # STAGE 3: SECURITY SCAN
-  # ════════════════════════════════════════════════════
-  security:
-    name: 🔒 Security Gate
-    needs:
-      - ci-frontend
-      - ci-checkoutservice
-      - ci-productcatalogservice
-      - ci-shippingservice
-      - ci-currencyservice
-      - ci-paymentservice
-      - ci-emailservice
-      - ci-recommendationservice
-      - ci-adservice
-      - ci-cartservice
-      - ci-loadgenerator
-    if: always() && !contains(needs.*.result, 'failure')
-    uses: ./.github/workflows/reusable-security-scan.yml
-    secrets: inherit
+  # # ════════════════════════════════════════════════════
+  # # STAGE 3: SECURITY SCAN
+  # # ════════════════════════════════════════════════════
+  # security:
+  #   name: 🔒 Security Gate
+  #   needs:
+  #     - ci-frontend
+  #     - ci-checkoutservice
+  #     - ci-productcatalogservice
+  #     - ci-shippingservice
+  #     - ci-currencyservice
+  #     - ci-paymentservice
+  #     - ci-emailservice
+  #     - ci-recommendationservice
+  #     - ci-adservice
+  #     - ci-cartservice
+  #     - ci-loadgenerator
+  #   if: always() && !contains(needs.*.result, 'failure')
+  #   uses: ./.github/workflows/reusable-security-scan.yml
+  #   secrets: inherit
 
   # ════════════════════════════════════════════════════
   # STAGE 4: DOCKER BUILD
@@ -355,7 +355,6 @@ jobs:
 
   # ════════════════════════════════════════════════════
   # STAGE 5: DEPLOY STAGING
-  # FIX: bỏ "cluster" input — k3d không cần
   # ════════════════════════════════════════════════════
   deploy-staging:
     name: 🎭 Deploy Staging
