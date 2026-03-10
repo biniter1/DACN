@@ -46,6 +46,13 @@ jobs:
       # ── VERIFY k3d CLUSTER RUNNING ────────────────────────
       - name: Check k3d cluster
         run: |
+          echo "User: $(whoami)"
+          echo "Groups: $(groups)"
+          echo "Docker socket: $(ls -la /var/run/docker.sock)"
+          echo "kubectl config:"
+          kubectl config view --minify 2>&1 || echo "No kubeconfig"
+          echo "📋 KUBECONFIG env: $KUBECONFIG"
+          
           if ! kubectl cluster-info &>/dev/null; then
             echo "❌ k3d cluster không chạy! Khởi động cluster trước:"
             echo "   k3d cluster start boutique"
