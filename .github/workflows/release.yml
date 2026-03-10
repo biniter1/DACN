@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write   # AWS OIDC
+      id-token: write
 
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -25,18 +25,16 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📦 Creating release v$VERSION"
 
-      # ── AWS AUTH ──────────────────────────────────────────
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}   # FIX: Sydney
 
       - name: Login to ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ── RETAG IMAGES với semver ───────────────────────────
       - name: Retag all service images with semver
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -53,20 +51,13 @@ jobs:
           for svc in "${SERVICES[@]}"; do
             SRC="${REGISTRY}/online-boutique/${svc}:sha-${SHA_SHORT}"
             DST="${REGISTRY}/online-boutique/${svc}:${VERSION}"
-
-            echo "🏷️ Tagging ${svc}: sha-${SHA_SHORT} → ${VERSION}"
-
-            # Pull sha-tagged, push as semver
-            docker pull "$SRC" || {
-              echo "⚠️ Image $SRC not found, skipping $svc"
-              continue
-            }
+            echo "🏷️ ${svc}: sha-${SHA_SHORT} → ${VERSION}"
+            docker pull "$SRC" || { echo "⚠️ $SRC not found, skipping"; continue; }
             docker tag "$SRC" "$DST"
             docker push "$DST"
             echo "✅ ${svc}:${VERSION} pushed"
           done
 
-      # ── CREATE GITHUB RELEASE ─────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -75,23 +66,12 @@ jobs:
           body: |
             ## 🚀 Release v${{ steps.version.outputs.version }}
 
-            ### Docker Images (AWS ECR)
-            ```
-            ECR_REGISTRY=${{ steps.ecr-login.outputs.registry }}
-
-            # Pull any service:
-            docker pull ${ECR_REGISTRY}/online-boutique/frontend:${{ steps.version.outputs.version }}
-            docker pull ${ECR_REGISTRY}/online-boutique/adservice:${{ steps.version.outputs.version }}
-            # ... (all 11 services available)
-            ```
-
-            ### Deploy specific version to EKS
+            ### Deploy lên k3d
             ```bash
-            SHA_SHORT=$(git rev-parse --short HEAD)
-
             helm upgrade boutique ./helm-chart \
               --namespace boutique-production \
-              --set global.imageTag=${{ steps.version.outputs.version }} \
+              --values helm-chart/values-production.yaml \
+              --set images.tag=${{ steps.version.outputs.version }} \
               --atomic --wait
             ```
 
