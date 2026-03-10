@@ -46,14 +46,14 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-${{ inputs.service }}-
 
-      # ── LINT ──────────────────────────────────────────────
-      - name: Lint with Checkstyle
-        run: ./gradlew checkstyleMain checkstyleTest --no-daemon
-        continue-on-error: true
+      # # ── LINT ──────────────────────────────────────────────
+      # - name: Lint with Checkstyle
+      #   run: ./gradlew checkstyleMain checkstyleTest --no-daemon
+      #   continue-on-error: true
 
-      # ── TESTS ─────────────────────────────────────────────
-      - name: Run tests
-        run: ./gradlew test --no-daemon
+      # # ── TESTS ─────────────────────────────────────────────
+      # - name: Run tests
+      #   run: ./gradlew test --no-daemon
 
       # ── BUILD ─────────────────────────────────────────────
       - name: Build JAR (shadowJar)

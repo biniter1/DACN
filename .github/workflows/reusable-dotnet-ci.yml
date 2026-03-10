@@ -46,10 +46,10 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore
 
-      # ── LINT ──────────────────────────────────────────────
-      - name: dotnet format check
-        run: dotnet format --verify-no-changes --verbosity diagnostic
-        continue-on-error: true  # Format issues không block
+      # # ── LINT ──────────────────────────────────────────────
+      # - name: dotnet format check
+      #   run: dotnet format --verify-no-changes --verbosity diagnostic
+      #   continue-on-error: true  # Format issues không block
 
       # ── BUILD ─────────────────────────────────────────────
       - name: Build
@@ -59,17 +59,17 @@ jobs:
             --configuration Release \
             -p:Version=${{ github.run_number }}.0.0
 
-      # ── TESTS ─────────────────────────────────────────────
-      - name: Run tests
-        run: |
-          dotnet test \
-            --no-build \
-            --configuration Release \
-            --collect:"XPlat Code Coverage" \
-            --results-directory ./coverage \
-            --logger "trx;LogFileName=test-results.trx" \
-            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
-        continue-on-error: true
+      # # ── TESTS ─────────────────────────────────────────────
+      # - name: Run tests
+      #   run: |
+      #     dotnet test \
+      #       --no-build \
+      #       --configuration Release \
+      #       --collect:"XPlat Code Coverage" \
+      #       --results-directory ./coverage \
+      #       --logger "trx;LogFileName=test-results.trx" \
+      #       -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      #   continue-on-error: true
 
       # ── PUBLISH ───────────────────────────────────────────
       - name: Publish

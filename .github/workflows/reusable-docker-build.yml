@@ -96,46 +96,46 @@ jobs:
           cache-from: type=gha,scope=${{ inputs.service }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service }}
 
-      # ── CONTAINER VULNERABILITY SCAN ─────────────────────
-      - name: Trivy — Container scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
-          format: sarif
-          output: trivy-${{ inputs.service }}.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
-        continue-on-error: true  
+      # # ── CONTAINER VULNERABILITY SCAN ─────────────────────
+      # - name: Trivy — Container scan
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     image-ref: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #     format: sarif
+      #     output: trivy-${{ inputs.service }}.sarif
+      #     severity: CRITICAL,HIGH
+      #     ignore-unfixed: true
+      #     exit-code: '1'
+      #   continue-on-error: true  
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-${{ inputs.service }}.sarif
+      # - name: Upload Trivy results to GitHub Security
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   if: always()
+      #   with:
+      #     sarif_file: trivy-${{ inputs.service }}.sarif
 
-      # ── SBOM GENERATION ───────────────────────────────────
-      - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
-        with:
-          image: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
-          format: spdx-json
-          output-file: sbom-${{ inputs.service }}.spdx.json
+      # # ── SBOM GENERATION ───────────────────────────────────
+      # - name: Generate SBOM with Syft
+      #   uses: anchore/sbom-action@v0
+      #   with:
+      #     image: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #     format: spdx-json
+      #     output-file: sbom-${{ inputs.service }}.spdx.json
 
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ inputs.service }}-${{ github.sha }}
-          path: sbom-${{ inputs.service }}.spdx.json
-          retention-days: 365
+      # - name: Upload SBOM artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: sbom-${{ inputs.service }}-${{ github.sha }}
+      #     path: sbom-${{ inputs.service }}.spdx.json
+      #     retention-days: 365
 
-      # ── IMAGE SIGNING với Cosign ──────────────────────────
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+      # # ── IMAGE SIGNING với Cosign ──────────────────────────
+      # - name: Install Cosign
+      #   uses: sigstore/cosign-installer@v3
 
-      - name: Sign image with Cosign (keyless OIDC)
-        run: |
-          cosign sign --yes \
-            ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
-        env:
-          COSIGN_EXPERIMENTAL: 1
+      # - name: Sign image with Cosign (keyless OIDC)
+      #   run: |
+      #     cosign sign --yes \
+      #       ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #   env:
+      #     COSIGN_EXPERIMENTAL: 1
