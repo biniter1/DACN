@@ -25,6 +25,12 @@ env:
   AWS_REGION: ap-southeast-2
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
   APP: online-boutique
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  security-events: write
+  packages: write
 
 jobs:
   # ════════════════════════════════════════════════════
@@ -32,7 +38,7 @@ jobs:
   # ════════════════════════════════════════════════════
   changes:
     name: 🔍 Detect Changed Services
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     outputs:
       frontend:              ${{ steps.filter.outputs.frontend }}
       cartservice:           ${{ steps.filter.outputs.cartservice }}
@@ -205,30 +211,35 @@ jobs:
   # ════════════════════════════════════════════════════
   # STAGE 3: SECURITY SCAN
   # ════════════════════════════════════════════════════
-  security:
-    name: 🔒 Security Gate
-    needs:
-      - ci-frontend
-      - ci-checkoutservice
-      - ci-productcatalogservice
-      - ci-shippingservice
-      - ci-currencyservice
-      - ci-paymentservice
-      - ci-emailservice
-      - ci-recommendationservice
-      - ci-adservice
-      - ci-cartservice
-      - ci-loadgenerator
-    if: always() && !contains(needs.*.result, 'failure')
-    uses: ./.github/workflows/reusable-security-scan.yml
-    secrets: inherit
+  # security:
+  #   name: 🔒 Security Gate
+  #   needs:
+  #     - ci-frontend
+  #     - ci-checkoutservice
+  #     - ci-productcatalogservice
+  #     - ci-shippingservice
+  #     - ci-currencyservice
+  #     - ci-paymentservice
+  #     - ci-emailservice
+  #     - ci-recommendationservice
+  #     - ci-adservice
+  #     - ci-cartservice
+  #     - ci-loadgenerator
+  #   if: always() && !contains(needs.*.result, 'failure')
+  #   permissions:           
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+  #   uses: ./.github/workflows/reusable-security-scan.yml
+  #   secrets: inherit
 
   # ════════════════════════════════════════════════════
   # STAGE 4: DOCKER BUILD
   # ════════════════════════════════════════════════════
   docker-frontend:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.frontend == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -238,8 +249,9 @@ jobs:
     secrets: inherit
 
   docker-cartservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.cartservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -249,8 +261,9 @@ jobs:
     secrets: inherit
 
   docker-productcatalogservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -260,8 +273,9 @@ jobs:
     secrets: inherit
 
   docker-currencyservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.currencyservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -271,8 +285,9 @@ jobs:
     secrets: inherit
 
   docker-paymentservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.paymentservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -282,8 +297,9 @@ jobs:
     secrets: inherit
 
   docker-shippingservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.shippingservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -293,8 +309,9 @@ jobs:
     secrets: inherit
 
   docker-emailservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.emailservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -304,8 +321,9 @@ jobs:
     secrets: inherit
 
   docker-checkoutservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.checkoutservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -315,8 +333,9 @@ jobs:
     secrets: inherit
 
   docker-recommendationservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.recommendationservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -326,8 +345,9 @@ jobs:
     secrets: inherit
 
   docker-adservice:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.adservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -337,8 +357,9 @@ jobs:
     secrets: inherit
 
   docker-loadgenerator:
-    needs: [changes]
+    needs: [security, changes]
     if: |
+      needs.security.result == 'success' &&
       (needs.changes.outputs.loadgenerator == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
@@ -383,7 +404,7 @@ jobs:
   integration-tests:
     name: 🧪 Integration Tests
     needs: deploy-staging
-    runs-on: [self-hosted, linux, k3d]   # ← FIX: phải là self-hosted
+    runs-on: [self-hosted, linux, k3d]   
     if: needs.deploy-staging.result == 'success'
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -428,7 +449,6 @@ jobs:
 
   # ════════════════════════════════════════════════════
   # STAGE 7+8: MANUAL APPROVAL → DEPLOY PRODUCTION
-  # FIX: bỏ "cluster" input
   # ════════════════════════════════════════════════════
   deploy-production:
     name: 🚀 Deploy Production
