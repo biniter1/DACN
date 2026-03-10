@@ -1,0 +1,85 @@
+# ============================================================
+# values-staging.yaml
+# Override cho môi trường staging trên k3d local
+# Image lấy từ AWS ECR của bạn
+# ============================================================
+
+# ECR registry — pipeline sẽ override tag động bằng --set
+images:
+  repository: YOUR_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique
+  tag: "latest"   # pipeline override thành sha-xxxxxx
+
+# Platform: local (k3d không phải GCP)
+frontend:
+  create: true
+  name: frontend
+  externalService: true   # tạo LoadBalancer service → truy cập từ browser
+  platform: local
+  cymbalBranding: false
+  singleSharedSession: false
+  virtualService:
+    create: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Staging: bật NetworkPolicy để test (baseline trước khi Zero-Trust)
+networkPolicies:
+  create: false   # false ở baseline, bật lên khi làm Zero-Trust phase
+
+# Istio sidecars: tắt ở baseline
+sidecars:
+  create: false
+
+# AuthorizationPolicies: tắt ở baseline
+authorizationPolicies:
+  create: false
+
+# ServiceAccounts: bật để chuẩn bị cho Zero-Trust
+serviceAccounts:
+  create: true
+  annotations: {}
+  annotationsOnlyForCartservice: false
+
+# Redis in-cluster (không dùng external DB cho staging)
+cartDatabase:
+  type: redis
+  connectionString: "redis-cart:6379"
+  inClusterRedis:
+    create: true
+    name: redis-cart
+    publicRepository: true
+
+# Load generator: bật để test
+loadGenerator:
+  create: true
+  name: loadgenerator
+  checkFrontendInitContainer: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# OpenTelemetry: tắt ở baseline
+opentelemetryCollector:
+  create: false
+
+# Tắt GCP-specific features
+googleCloudOperations:
+  profiler: false
+  tracing: false
+  metrics: false
+
+# Security context: bật
+securityContext:
+  enable: true
+
+seccompProfile:
+  enable: false

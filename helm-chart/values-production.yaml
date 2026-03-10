@@ -1,0 +1,168 @@
+# ============================================================
+# values-production.yaml
+# Override cho môi trường production trên k3d local
+# Tighter resource limits, no load generator
+# ============================================================
+
+images:
+  repository: YOUR_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique
+  tag: "latest"   # pipeline override thành sha-xxxxxx
+
+frontend:
+  create: true
+  name: frontend
+  externalService: true
+  platform: local
+  cymbalBranding: false
+  singleSharedSession: false
+  virtualService:
+    create: false
+  resources:
+    requests:
+      cpu: 150m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+# Production: NetworkPolicy sẽ bật khi Zero-Trust phase
+networkPolicies:
+  create: false
+
+sidecars:
+  create: false
+
+authorizationPolicies:
+  create: false
+
+serviceAccounts:
+  create: true
+  annotations: {}
+  annotationsOnlyForCartservice: false
+
+cartDatabase:
+  type: redis
+  connectionString: "redis-cart:6379"
+  inClusterRedis:
+    create: true
+    name: redis-cart
+    publicRepository: true
+
+# Production: TẮT load generator (không cần sinh traffic giả)
+loadGenerator:
+  create: false
+
+opentelemetryCollector:
+  create: false
+
+googleCloudOperations:
+  profiler: false
+  tracing: false
+  metrics: false
+
+securityContext:
+  enable: true
+
+seccompProfile:
+  enable: false
+
+# Production: resource cao hơn staging
+adService:
+  create: true
+  name: adservice
+  resources:
+    requests:
+      cpu: 200m
+      memory: 200Mi
+    limits:
+      cpu: 400m
+      memory: 400Mi
+
+cartService:
+  create: true
+  name: cartservice
+  resources:
+    requests:
+      cpu: 200m
+      memory: 150Mi
+    limits:
+      cpu: 400m
+      memory: 300Mi
+
+checkoutService:
+  create: true
+  name: checkoutservice
+  resources:
+    requests:
+      cpu: 150m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+currencyService:
+  create: true
+  name: currencyservice
+  resources:
+    requests:
+      cpu: 150m
+      memory: 150Mi
+    limits:
+      cpu: 300m
+      memory: 300Mi
+
+emailService:
+  create: true
+  name: emailservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
+
+paymentService:
+  create: true
+  name: paymentservice
+  resources:
+    requests:
+      cpu: 150m
+      memory: 150Mi
+    limits:
+      cpu: 300m
+      memory: 300Mi
+
+productCatalogService:
+  create: true
+  name: productcatalogservice
+  extraLatency: ""
+  resources:
+    requests:
+      cpu: 150m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+recommendationService:
+  create: true
+  name: recommendationservice
+  resources:
+    requests:
+      cpu: 150m
+      memory: 250Mi
+    limits:
+      cpu: 300m
+      memory: 500Mi
+
+shippingService:
+  create: true
+  name: shippingservice
+  resources:
+    requests:
+      cpu: 150m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi

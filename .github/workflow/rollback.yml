@@ -1,4 +1,4 @@
-name: ⏪ Emergency Rollback (AWS EKS)
+name: ⏪ Emergency Rollback (k3d)
 
 on:
   workflow_dispatch:
@@ -9,82 +9,52 @@ on:
         type: choice
         options: [staging, production]
       revision:
-        description: 'Helm revision number (để trống = rollback về trước đó)'
+        description: 'Helm revision (để trống = rollback về trước đó)'
         required: false
         type: string
       reason:
-        description: 'Lý do rollback (bắt buộc để audit)'
+        description: 'Lý do rollback (bắt buộc)'
         required: true
         type: string
 
 jobs:
   rollback:
     name: ⏪ Rollback ${{ inputs.environment }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     environment: ${{ inputs.environment }}
     permissions:
-      contents: write   # Để tạo issue
-      id-token: write   # AWS OIDC
+      contents: write
 
     steps:
-      # ── AWS AUTH ──────────────────────────────────────────
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
-
-      # ── CONFIGURE KUBECTL ─────────────────────────────────
-      - name: Configure kubectl for EKS
+      - name: Check cluster
         run: |
-          CLUSTER="${{ inputs.environment == 'production' && 'prod-cluster' || 'staging-cluster' }}"
-          aws eks update-kubeconfig \
-            --name "$CLUSTER" \
-            --region "${{ secrets.AWS_REGION || 'ap-southeast-1' }}"
+          kubectl cluster-info || { echo "❌ Cluster không chạy!"; exit 1; }
 
-      # ── INSTALL HELM ──────────────────────────────────────
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v3.14.0'
-
-      # ── SHOW CURRENT STATE ────────────────────────────────
-      - name: Show current Helm history
+      - name: Show current state
         run: |
           NS="boutique-${{ inputs.environment }}"
-          echo "📊 Helm revision history:"
-          helm history boutique -n "$NS" || echo "No history found"
-          echo ""
-          echo "📊 Current pods:"
-          kubectl get pods -n "$NS" -o wide
+          echo "📊 Helm history:"
+          helm history boutique -n "$NS" 2>/dev/null || echo "No history"
+          echo "📊 Pods:"
+          kubectl get pods -n "$NS" 2>/dev/null || echo "No pods"
 
-      # ── EXECUTE ROLLBACK ──────────────────────────────────
-      - name: Execute Helm rollback
+      - name: Execute rollback
         run: |
           NS="boutique-${{ inputs.environment }}"
           REVISION="${{ inputs.revision }}"
 
           if [ -z "$REVISION" ]; then
-            echo "⏪ Rolling back to previous revision..."
+            echo "⏪ Rollback về revision trước..."
             helm rollback boutique -n "$NS"
           else
-            echo "⏪ Rolling back to revision $REVISION..."
+            echo "⏪ Rollback về revision $REVISION..."
             helm rollback boutique "$REVISION" -n "$NS"
           fi
 
-          # Wait for rollback to complete
-          kubectl rollout status deployment \
-            -n "$NS" --timeout=5m
-          echo "✅ Rollback complete!"
+          kubectl rollout status deployment -n "$NS" --timeout=3m
+          echo "✅ Rollback hoàn tất!"
+          kubectl get pods -n "$NS"
 
-      # ── POST-ROLLBACK VERIFY ──────────────────────────────
-      - name: Verify pods healthy after rollback
-        run: |
-          NS="boutique-${{ inputs.environment }}"
-          echo "📊 Pod status after rollback:"
-          kubectl get pods -n "$NS" -o wide
-
-      # ── CREATE INCIDENT ISSUE ─────────────────────────────
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
       - name: Create incident issue
@@ -95,34 +65,7 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `🔴 [INCIDENT] Rollback — ${context.payload.inputs.environment} — ${date}`,
-              body: `## Rollback Incident Record
-
-              | Field | Value |
-              |-------|-------|
-              | **Environment** | ${context.payload.inputs.environment} |
-              | **Triggered by** | ${context.actor} |
-              | **Reason** | ${context.payload.inputs.reason} |
-              | **Revision** | ${context.payload.inputs.revision || 'Previous'} |
-              | **Timestamp** | ${date} |
-              | **Run** | [View Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) |
-
-              ### ✅ Action Required
-              - [ ] Investigate root cause
-              - [ ] Fix the issue in a new branch
-              - [ ] Write post-mortem
-              - [ ] Re-deploy when fixed`,
-              labels: ['incident', 'rollback', context.payload.inputs.environment]
+              title: `🔴 [ROLLBACK] ${context.payload.inputs.environment} — ${date}`,
+              body: `## Rollback Record\n\n| Field | Value |\n|-------|-------|\n| **Env** | ${context.payload.inputs.environment} |\n| **By** | ${context.actor} |\n| **Reason** | ${context.payload.inputs.reason} |\n| **Time** | ${date} |\n| **Run** | [Link](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) |\n\n- [ ] Investigate root cause\n- [ ] Fix and redeploy`,
+              labels: ['incident', 'rollback']
             });
-
-      # ── SLACK NOTIFY ──────────────────────────────────────
-      - name: Notify Slack
-        if: secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "⏪ *ROLLBACK THỰC HIỆN*\n*Env:* ${{ inputs.environment }}\n*Lý do:* ${{ inputs.reason }}\n*By:* ${{ github.actor }}\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

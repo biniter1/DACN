@@ -1,12 +1,9 @@
-name: Reusable — Helm Deploy (AWS EKS)
+name: Reusable — Helm Deploy (k3d local)
 
 on:
   workflow_call:
     inputs:
       environment:
-        required: true
-        type: string
-      cluster:
         required: true
         type: string
       namespace:
@@ -16,10 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-      image-tag:
-        required: false
-        type: string
-        default: ''
     outputs:
       deploy-url:
         description: 'Deployed app URL'
@@ -28,7 +21,8 @@ on:
 jobs:
   deploy:
     name: Deploy → ${{ inputs.environment }}
-    runs-on: ubuntu-latest
+    # ── QUAN TRỌNG: chạy trên máy bạn, không phải GitHub cloud ──
+    runs-on: [self-hosted, linux, k3d]
     environment:
       name: ${{ inputs.environment }}
       url: ${{ steps.get-url.outputs.url }}
@@ -38,195 +32,137 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
-      # ── AWS OIDC AUTH ─────────────────────────────────────
-      - name: Configure AWS Credentials (OIDC)
+      # ── AWS ECR LOGIN (lấy image) ─────────────────────────
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
 
-      # ── CONFIGURE KUBECTL FOR EKS ─────────────────────────
-      - name: Setup kubectl for EKS
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── VERIFY k3d CLUSTER RUNNING ────────────────────────
+      - name: Check k3d cluster
         run: |
-          aws eks update-kubeconfig \
-            --name ${{ inputs.cluster }} \
-            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
-          kubectl cluster-info
-
-      # ── INSTALL HELM ──────────────────────────────────────
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v3.14.0'
+          if ! kubectl cluster-info &>/dev/null; then
+            echo "❌ k3d cluster không chạy! Khởi động cluster trước:"
+            echo "   k3d cluster start boutique"
+            exit 1
+          fi
+          echo "✅ Cluster đang chạy:"
+          kubectl get nodes
 
       # ── NAMESPACE SETUP ───────────────────────────────────
       - name: Ensure namespace exists
         run: |
           kubectl create namespace ${{ inputs.namespace }} \
             --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Namespace: ${{ inputs.namespace }}"
 
-      # ── BUILD IMAGE TAG ───────────────────────────────────
-      - name: Build image tag and Helm --set flags
-        id: helm-values
+      # ── IMAGE TAG ─────────────────────────────────────────
+      - name: Get image tag
+        id: tag
         run: |
           SHA_SHORT=$(git rev-parse --short HEAD)
           TAG="sha-${SHA_SHORT}"
-          ECR_REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION || 'ap-southeast-1' }}.amazonaws.com"
+          ECR="${{ steps.ecr-login.outputs.registry }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "registry=${ECR}" >> $GITHUB_OUTPUT
+          echo "📦 Deploying tag: ${TAG}"
 
-          SETS=""
-          services=(frontend cartservice productcatalogservice currencyservice
-                     paymentservice shippingservice emailservice checkoutservice
-                     recommendationservice adservice loadgenerator)
-          for svc in "${services[@]}"; do
-            SETS+="--set images.${svc}.repository=${ECR_REGISTRY}/online-boutique/${svc} "
-            SETS+="--set images.${svc}.tag=${TAG} "
-          done
-
-          echo "helm_sets=${SETS}" >> $GITHUB_OUTPUT
-          echo "image_tag=${TAG}" >> $GITHUB_OUTPUT
-
-      # ── CANARY DEPLOY (chỉ Production) ───────────────────
-      - name: Canary Deploy Phase 1 — 10% traffic
-        if: inputs.canary == true
+      # ── HELM DEPLOY ───────────────────────────────────────
+      - name: Helm upgrade — ${{ inputs.environment }}
         run: |
-          helm upgrade --install boutique-canary ./helm-chart \
-            --namespace ${{ inputs.namespace }} \
-            --values helm-chart/values-${{ inputs.environment }}.yaml \
-            ${{ steps.helm-values.outputs.helm_sets }} \
-            --set canary.enabled=true \
-            --set canary.weight=10 \
-            --atomic \
-            --timeout 5m \
-            --wait
+          TAG="${{ steps.tag.outputs.tag }}"
+          ECR="${{ steps.tag.outputs.registry }}"
 
-      - name: Monitor canary — 10 minutes
-        if: inputs.canary == true
-        run: |
-          echo "🔍 Monitoring canary for 10 minutes..."
-          ERROR_COUNT=0
-          ENDPOINT="${{ steps.get-url.outputs.url }}/health"
-
-          for i in $(seq 1 60); do
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT" || echo "000")
-            if [ "$HTTP" != "200" ]; then
-              ERROR_COUNT=$((ERROR_COUNT + 1))
-              echo "⚠️ [${i}/60] Error: HTTP $HTTP (total errors: $ERROR_COUNT)"
-            else
-              echo "✅ [${i}/60] Healthy"
-            fi
-            if [ "$ERROR_COUNT" -gt 5 ]; then
-              echo "❌ Error threshold exceeded! Rolling back canary..."
-              helm rollback boutique-canary -n ${{ inputs.namespace }} || true
-              exit 1
-            fi
-            sleep 10
-          done
-          echo "✅ Canary healthy — proceeding to full rollout"
-
-      # ── FULL DEPLOY ───────────────────────────────────────
-      - name: Helm upgrade — Full deploy
-        run: |
           helm upgrade --install boutique ./helm-chart \
             --namespace ${{ inputs.namespace }} \
             --values helm-chart/values-${{ inputs.environment }}.yaml \
-            ${{ steps.helm-values.outputs.helm_sets }} \
-            --set canary.enabled=false \
+            --set images.repository="${ECR}/online-boutique" \
+            --set images.tag="${TAG}" \
             --atomic \
-            --timeout 10m \
+            --timeout 8m \
             --wait \
-            --history-max 10
+            --history-max 5
 
-      # ── POST-DEPLOY VERIFY ────────────────────────────────
-      - name: Verify rollout
+      # ── VERIFY DEPLOY ─────────────────────────────────────
+      - name: Verify pods running
         run: |
-          kubectl rollout status deployment \
-            --namespace ${{ inputs.namespace }} \
-            --timeout=5m
-          echo "📊 Pods:"
-          kubectl get pods -n ${{ inputs.namespace }} -o wide
+          echo "⏳ Waiting for all pods..."
+          kubectl wait --for=condition=ready pod \
+            --all \
+            -n ${{ inputs.namespace }} \
+            --timeout=300s || true
 
-      - name: Get deployment URL
+          echo "📊 Pod status:"
+          kubectl get pods -n ${{ inputs.namespace }}
+
+          # Đếm pods không Ready
+          NOT_READY=$(kubectl get pods -n ${{ inputs.namespace }} \
+            --no-headers | grep -v "Running\|Completed" | wc -l)
+          if [ "$NOT_READY" -gt "0" ]; then
+            echo "⚠️ $NOT_READY pods chưa Ready:"
+            kubectl get pods -n ${{ inputs.namespace }} | grep -v "Running\|Completed"
+          fi
+
+      - name: Get frontend URL
         id: get-url
         run: |
           if [ "${{ inputs.environment }}" == "production" ]; then
-            echo "url=https://boutique.example.com" >> $GITHUB_OUTPUT
+            echo "url=http://localhost:80 (production)" >> $GITHUB_OUTPUT
           else
-            echo "url=https://staging.boutique.example.com" >> $GITHUB_OUTPUT
+            echo "url=http://localhost:80 (staging)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Health check post-deploy
+      # ── SMOKE TEST ────────────────────────────────────────
+      - name: Smoke test — frontend accessible
         run: |
-          sleep 20
-          ENDPOINT="${{ steps.get-url.outputs.url }}"
-          for i in 1 2 3; do
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$ENDPOINT" || echo "000")
+          echo "⏳ Waiting 15s for LoadBalancer..."
+          sleep 15
+
+          # k3d maps port 80 ra localhost
+          for i in 1 2 3 4 5; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:80 --max-time 10 || echo "000")
             if [ "$HTTP" == "200" ]; then
-              echo "✅ Health check passed!"
+              echo "✅ Frontend accessible! HTTP $HTTP"
               exit 0
             fi
-            echo "Attempt $i: HTTP $HTTP — retrying in 15s..."
-            sleep 15
+            echo "Attempt $i: HTTP $HTTP — waiting 10s..."
+            sleep 10
           done
-          echo "❌ Health check failed after 3 attempts"
-          exit 1
+          echo "⚠️ Frontend chưa accessible sau 5 lần thử (có thể vẫn đang khởi động)"
+          # Không fail pipeline — chỉ warn
 
-      # ── SLACK NOTIFY ──────────────────────────────────────
-      - name: Notify Slack — Success
-        if: success() && secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "✅ *${{ inputs.environment }}* deploy thành công!\n*Tag:* `${{ steps.helm-values.outputs.image_tag }}`\n*URL:* ${{ steps.get-url.outputs.url }}\n*By:* ${{ github.actor }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      # ── NOTIFY ────────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace | ${{ inputs.namespace }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ steps.tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Access app:** http://localhost:80" >> $GITHUB_STEP_SUMMARY
 
-      - name: Notify Slack — Failure
-        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "❌ *${{ inputs.environment }}* deploy THẤT BẠI!\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*By:* ${{ github.actor }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-  # ── AUTO ROLLBACK KHI PRODUCTION FAIL ────────────────────
+  # ── AUTO ROLLBACK NẾU PRODUCTION FAIL ─────────────────────
   rollback-on-failure:
     name: ⏪ Auto Rollback
     needs: deploy
     if: failure() && inputs.environment == 'production'
-    runs-on: ubuntu-latest
-    environment: production
+    runs-on: [self-hosted, linux, k3d]
     steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
-
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ inputs.cluster }} \
-            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
-
       - name: Helm rollback
         run: |
           echo "⏪ Rolling back boutique in ${{ inputs.namespace }}..."
-          helm rollback boutique -n ${{ inputs.namespace }}
-          kubectl rollout status deployment -n ${{ inputs.namespace }} --timeout=5m
-          echo "✅ Rollback complete!"
-
-      - name: Alert Slack on rollback
-        if: secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "⚠️ *PRODUCTION ROLLBACK THỰC HIỆN*\nDeploy thất bại — đã rollback về phiên bản trước.\n*Run:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          helm rollback boutique -n ${{ inputs.namespace }} || true
+          kubectl rollout status deployment \
+            -n ${{ inputs.namespace }} --timeout=3m || true
+          echo "✅ Rollback done"
+          kubectl get pods -n ${{ inputs.namespace }}

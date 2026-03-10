@@ -8,7 +8,7 @@ inputs:
   aws-region:
     description: 'AWS Region'
     required: false
-    default: 'ap-southeast-1'
+    default: 'ap-southeast-2'
   cluster-name:
     description: 'EKS cluster name'
     required: true

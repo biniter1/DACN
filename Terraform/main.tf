@@ -6,13 +6,12 @@ terraform {
     }
   }
 
-  # Uncomment to enable remote state
-  # backend "s3" {
-  #   bucket         = "terraform-state-microservices"
-  #   key            = "prod/terraform.tfstate"
-  #   region         = "ap-southeast-1"
-  #   dynamodb_table = "terraform-locks"
-  # }
+  backend "s3" {
+    bucket         = "company-terraform-state-demo-project"
+    key            = "prod/terraform.tfstate"
+    region         = "ap-southeast-2"
+    dynamodb_table = "terraform-lock-demo-project"
+  }
 }
 
 provider "aws" {
@@ -38,6 +37,8 @@ module "vpc" {
 # ──────────────────────────────────────────
 module "iam" {
   source = "./modules/iam"
+  name_project = var.name_project
+
 }
 
 # ──────────────────────────────────────────
