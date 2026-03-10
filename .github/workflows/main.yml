@@ -220,6 +220,10 @@ jobs:
       - ci-cartservice
       - ci-loadgenerator
     if: always() && !contains(needs.*.result, 'failure')
+    permissions:           
+      actions: read
+      contents: read
+      security-events: write
     uses: ./.github/workflows/reusable-security-scan.yml
     secrets: inherit
 
