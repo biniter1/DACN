@@ -252,6 +252,7 @@ jobs:
     with:
       service: cartservice
       context: src/cartservice
+      dockerfile: src/cartservice/src/Dockerfile
     secrets: inherit
 
   docker-productcatalogservice:
