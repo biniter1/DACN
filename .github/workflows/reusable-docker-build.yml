@@ -24,7 +24,7 @@ on:
 jobs:
   docker:
     name: 🐳 Docker — ${{ inputs.service }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     permissions:
       contents: read
       id-token: write        # Bắt buộc cho AWS OIDC

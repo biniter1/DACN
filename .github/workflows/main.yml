@@ -38,7 +38,7 @@ jobs:
   # ════════════════════════════════════════════════════
   changes:
     name: 🔍 Detect Changed Services
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     outputs:
       frontend:              ${{ steps.filter.outputs.frontend }}
       cartservice:           ${{ steps.filter.outputs.cartservice }}

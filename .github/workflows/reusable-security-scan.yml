@@ -11,7 +11,7 @@ jobs:
   # ── SAST: CodeQL (multi-language parallel) ──────────────
   codeql:
     name: 🔬 CodeQL — ${{ matrix.language }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     permissions:
       security-events: write
       actions: read
@@ -40,7 +40,7 @@ jobs:
   # ── SECRETS SCANNING ────────────────────────────────────
   secrets-scan:
     name: 🔑 Secrets Detection
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
@@ -63,7 +63,7 @@ jobs:
   # ── DEPENDENCY SCANNING ─────────────────────────────────
   dependency-scan:
     name: 📦 Dependency Scan — ${{ matrix.service.name }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     strategy:
       fail-fast: false
       matrix:
@@ -151,7 +151,7 @@ jobs:
   # ── AGGREGATE GATE ───────────────────────────────────────
   aggregate:
     name: ✅ Security Gate Result
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     needs: [codeql, secrets-scan, dependency-scan]
     if: always()
     outputs:

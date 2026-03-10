@@ -18,7 +18,7 @@ on:
 jobs:
   ci:
     name: Node.js CI — ${{ inputs.service }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     defaults:

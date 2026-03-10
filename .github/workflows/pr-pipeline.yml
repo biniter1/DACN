@@ -13,7 +13,7 @@ jobs:
   # ── DETECT CHANGES ────────────────────────────────────────
   changes:
     name: 🔍 Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     outputs:
       frontend:              ${{ steps.filter.outputs.frontend }}
       cartservice:           ${{ steps.filter.outputs.cartservice }}
@@ -59,7 +59,7 @@ jobs:
   quick-lint:
     name: 🔍 Quick Lint
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
@@ -141,7 +141,7 @@ jobs:
   # ── SECRETS SCAN (luôn chạy trên PR) ─────────────────────
   secrets-scan:
     name: 🔑 Secrets Scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
@@ -154,7 +154,7 @@ jobs:
   pr-comment:
     name: 💬 PR Status Comment
     needs: [quick-lint, secrets-scan]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, k3d]
     if: always()
     permissions:
       pull-requests: write
