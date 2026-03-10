@@ -235,7 +235,7 @@ jobs:
   docker-frontend:
     needs: [changes]
     if: |
-      (needs.changes.outputs.frontend == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.frontend == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -246,7 +246,7 @@ jobs:
   docker-cartservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.cartservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.cartservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -257,7 +257,7 @@ jobs:
   docker-productcatalogservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -268,7 +268,7 @@ jobs:
   docker-currencyservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -279,7 +279,7 @@ jobs:
   docker-paymentservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -290,7 +290,7 @@ jobs:
   docker-shippingservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.shippingservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.shippingservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -301,7 +301,7 @@ jobs:
   docker-emailservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.emailservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.emailservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -312,7 +312,7 @@ jobs:
   docker-checkoutservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.checkoutservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.checkoutservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -323,7 +323,7 @@ jobs:
   docker-recommendationservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.recommendationservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.recommendationservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -334,7 +334,7 @@ jobs:
   docker-adservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.adservice == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.adservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -345,7 +345,7 @@ jobs:
   docker-loadgenerator:
     needs: [changes]
     if: |
-      (needs.changes.outputs.loadgenerator == 'true' || inputs.force_all) &&
+      (needs.changes.outputs.loadgenerator == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
