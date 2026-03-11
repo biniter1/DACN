@@ -82,7 +82,10 @@ jobs:
             org.opencontainers.image.title=${{ inputs.service }}
             org.opencontainers.image.description=Online Boutique — ${{ inputs.service }}
             org.opencontainers.image.revision=${{ github.sha }}
-
+      - name: List files for debugging
+        run: |
+          echo "Listing files in context: ${{ inputs.context }}"
+          ls -R ${{ inputs.context }} | grep Dockerfile
       # ── BUILD & PUSH ──────────────────────────────────────
       - name: Build and push to ECR
         id: build
