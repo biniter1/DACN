@@ -269,7 +269,7 @@ jobs:
   docker-currencyservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
+      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all ) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -280,7 +280,7 @@ jobs:
   docker-paymentservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
+      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all ) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -335,7 +335,7 @@ jobs:
   docker-adservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.adservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
+      (needs.changes.outputs.adservice == 'true' || inputs.force_all ) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
@@ -389,7 +389,7 @@ jobs:
   integration-tests:
     name: 🧪 Integration Tests
     needs: deploy-staging
-    runs-on: [self-hosted, linux, k3d]   # ← FIX: phải là self-hosted
+    runs-on: [self-hosted, linux, k3d]   
     if: needs.deploy-staging.result == 'success'
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -434,7 +434,6 @@ jobs:
 
   # ════════════════════════════════════════════════════
   # STAGE 7+8: MANUAL APPROVAL → DEPLOY PRODUCTION
-  # FIX: bỏ "cluster" input
   # ════════════════════════════════════════════════════
   deploy-production:
     name: 🚀 Deploy Production
@@ -444,5 +443,5 @@ jobs:
     with:
       environment: production
       namespace: boutique-production
-      canary: false   # k3d không cần canary — đơn giản hóa
+      canary: false   
     secrets: inherit
