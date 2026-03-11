@@ -93,7 +93,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          dockerfile: ${{ inputs.dockerfile }}
+          file: ${{ inputs.dockerfile }}
           build-args: |
             VERSION=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}

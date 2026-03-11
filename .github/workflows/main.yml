@@ -252,7 +252,7 @@ jobs:
     with:
       service: cartservice
       context: src/cartservice
-      dockerfile: src/cartservice/src/Dockerfile
+      dockerfile: src/Dockerfile
     secrets: inherit
   # || github.ref == 'refs/heads/main'
   docker-productcatalogservice:
