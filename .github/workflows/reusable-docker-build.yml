@@ -16,7 +16,7 @@ on:
       dockerfile:
         required: false
         type: string
-        default: ''
+        default: 'Dockerfile'
     outputs:
       image-digest:
         description: 'Image digest'

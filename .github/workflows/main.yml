@@ -251,8 +251,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
       service: cartservice
-      context: src/cartservice
-      dockerfile: src/cartservice/Dockerfile
+      context: src/cartservice/src
     secrets: inherit
   # || github.ref == 'refs/heads/main'
   docker-productcatalogservice:
