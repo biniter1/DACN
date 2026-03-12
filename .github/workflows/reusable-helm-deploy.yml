@@ -78,7 +78,13 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "registry=${ECR}" >> $GITHUB_OUTPUT
           echo "📦 Deploying tag: ${TAG}"
-
+      - name: Helm template debug
+        run: |
+          helm template boutique ./helm-chart \
+            --namespace ${{ inputs.namespace }} \
+            --values helm-chart/values-${{ inputs.environment }}.yaml \
+            --set images.repository="${{ steps.tag.outputs.registry }}/online-boutique" \
+            --set images.tag="${{ steps.tag.outputs.tag }}"
       # ── HELM DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — ${{ inputs.environment }}
         run: |
@@ -94,7 +100,22 @@ jobs:
             --timeout 8m \
             --wait \
             --history-max 5
+      - name: Debug pods
+        if: failure()
+        run: |
+          echo "===== Pods ====="
+          kubectl get pods -n ${{ inputs.namespace }} -o wide
 
+          echo "===== Describe pods ====="
+          for p in $(kubectl get pods -n ${{ inputs.namespace }} -o name); do
+            echo "---- $p ----"
+            kubectl describe $p -n ${{ inputs.namespace }}
+          done
+
+          echo "===== Logs ====="
+          for p in $(kubectl get pods -n ${{ inputs.namespace }} -o name); do
+            kubectl logs $p -n ${{ inputs.namespace }} --tail=50 || true
+          done
       # ── VERIFY DEPLOY ─────────────────────────────────────
       - name: Verify pods running
         run: |
