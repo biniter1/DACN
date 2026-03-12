@@ -85,6 +85,37 @@ jobs:
             --values helm-chart/values-${{ inputs.environment }}.yaml \
             --set images.repository="${{ steps.tag.outputs.registry }}/online-boutique" \
             --set images.tag="${{ steps.tag.outputs.tag }}"
+      - name: Attach secret to service account
+        run: |
+          set -e
+
+          REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+          PASSWORD=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }})
+
+          echo "🔐 Creating/Updating ECR secret..."
+
+          kubectl create secret docker-registry ecr-secret \
+            --docker-server=$REGISTRY \
+            --docker-username=AWS \
+            --docker-password="$PASSWORD" \
+            --namespace ${{ inputs.namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "✅ Secret ensured"
+
+      # ── ATTACH SECRET TO SERVICE ACCOUNT ───────────────────────
+      - name: Attach secret to service accounts
+        run: |
+          echo "🔗 Attaching secret to service accounts..."
+
+          for sa in $(kubectl get sa -n ${{ inputs.namespace }} -o jsonpath='{.items[*].metadata.name}'); do
+            kubectl patch serviceaccount $sa \
+              -n ${{ inputs.namespace }} \
+              -p '{"imagePullSecrets":[{"name":"ecr-secret"}]}' \
+              --type=merge || true
+          done
+
+          echo "✅ imagePullSecret attached"
       # ── HELM DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — ${{ inputs.environment }}
         run: |
