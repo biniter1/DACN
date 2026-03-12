@@ -246,7 +246,7 @@ jobs:
   docker-cartservice:
     needs: [changes]
     if: |
-      (needs.changes.outputs.cartservice == 'true' || inputs.force_all || github.ref == 'refs/heads/main') &&
+      (needs.changes.outputs.cartservice == 'true' || inputs.force_all) &&
       github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-docker-build.yml
     with:
