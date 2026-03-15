@@ -123,14 +123,14 @@ jobs:
           ECR="${{ steps.tag.outputs.registry }}"
 
           helm upgrade --install boutique ./helm-chart \
-            --namespace ${{ inputs.namespace }} \
-            --values helm-chart/values-${{ inputs.environment }}.yaml \
-            --set images.repository="${ECR}/online-boutique" \
-            --set images.tag="${TAG}" \
-            --atomic \
-            --timeout 8m \
-            --wait \
-            --history-max 5
+          --namespace ${{ inputs.namespace }} \
+          --values helm-chart/values-${{ inputs.environment }}.yaml \
+          --set images.repository="${ECR}/online-boutique" \
+          --set images.tag="${TAG}" \
+          --set imagePullSecrets[0].name=ecr-secret \
+          --atomic \
+          --timeout 8m \
+          --wait
       - name: Debug pods
         if: failure()
         run: |
