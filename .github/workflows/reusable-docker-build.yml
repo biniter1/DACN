@@ -60,11 +60,11 @@ jobs:
         run: |
           aws ecr describe-repositories \
             --repository-names online-boutique/${{ inputs.service }} \
-            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }} 2>/dev/null || \
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }} 2>/dev/null || \
           aws ecr create-repository \
             --repository-name online-boutique/${{ inputs.service }} \
             --image-scanning-configuration scanOnPush=true \
-            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
 
       # ── GENERATE TAGS ─────────────────────────────────────
       - name: Extract image metadata
