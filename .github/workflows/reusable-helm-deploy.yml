@@ -91,23 +91,25 @@ jobs:
           echo "✅ ECR secret ready"
 
       # ── PRE-CREATE SERVICE ACCOUNTS & PATCH ──────────────
-      - name: Pre-create and patch ServiceAccounts
+      - name: Pre-patch ServiceAccounts
         run: |
-          # Pre-create SA cho tất cả services trước khi helm deploy
-          for sa in adservice cartservice checkoutservice currencyservice \
-                    emailservice frontend loadgenerator paymentservice \
-                    productcatalogservice recommendationservice shippingservice; do
-            kubectl create serviceaccount $sa \
-              --namespace ${{ inputs.namespace }} \
-              --dry-run=client -o yaml | kubectl apply -f -
+          SERVICES="adservice cartservice checkoutservice currencyservice \
+                    emailservice frontend paymentservice \
+                    productcatalogservice recommendationservice shippingservice"
+
+          # Xóa SA cũ tạo thủ công (không có Helm labels)
+          for sa in $SERVICES; do
+            MANAGED=$(kubectl get serviceaccount $sa \
+              -n ${{ inputs.namespace }} \
+              -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
             
-            kubectl patch serviceaccount $sa \
-              --namespace ${{ inputs.namespace }} \
-              -p '{"imagePullSecrets":[{"name":"ecr-secret"}]}' \
-              --type=merge
-            
-            echo "✅ SA ready: $sa"
+            if [ "$MANAGED" != "Helm" ]; then
+              kubectl delete serviceaccount $sa \
+                -n ${{ inputs.namespace }} 2>/dev/null || true
+              echo "🗑 Deleted unmanaged SA: $sa"
+            fi
           done
+          echo "✅ SA cleanup done"
       # ── HELM DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — ${{ inputs.environment }}
         run: |
@@ -123,6 +125,24 @@ jobs:
           --atomic \
           --timeout 8m \
           --wait
+      - name: Patch ServiceAccounts with ecr-secret
+        run: |
+          for sa in $(kubectl get sa -n ${{ inputs.namespace }} \
+            -o jsonpath='{.items[*].metadata.name}'); do
+            kubectl patch serviceaccount $sa \
+              -n ${{ inputs.namespace }} \
+              -p '{"imagePullSecrets":[{"name":"ecr-secret"}]}' \
+              --type=merge
+            echo "✅ Patched: $sa"
+          done
+
+          # Restart deployments để pods mới dùng SA đã patch
+          kubectl rollout restart deployment \
+            -n ${{ inputs.namespace }}
+          
+          kubectl rollout status deployment \
+            -n ${{ inputs.namespace }} \
+            --timeout=5m
       - name: Debug pods
         if: failure()
         run: |
