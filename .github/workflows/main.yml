@@ -15,7 +15,7 @@ on:
         description: 'Deploy target'
         type: choice
         options: [staging, production, staging-only]
-        default: staging
+        # default: staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -384,7 +384,6 @@ jobs:
 
   # ════════════════════════════════════════════════════
   # STAGE 6: INTEGRATION TESTS
-  # FIX: chạy trên self-hosted runner, dùng localhost
   # ════════════════════════════════════════════════════
   integration-tests:
     name: 🧪 Integration Tests
