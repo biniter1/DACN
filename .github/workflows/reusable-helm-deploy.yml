@@ -46,24 +46,15 @@ jobs:
       # ── VERIFY k3d CLUSTER RUNNING ────────────────────────
       - name: Check k3d cluster
         run: |
-          echo "User: $(whoami)"
-          echo "Groups: $(groups)"
-          echo "Docker socket: $(ls -la /var/run/docker.sock)"
-          echo "kubectl config:"
-          kubectl config view --minify 2>&1 || echo "No kubeconfig"
-          kubectl get pod
-          k3d cluster list
           export KUBECONFIG=$(k3d kubeconfig write boutique)
-          echo "📋 KUBECONFIG env: $KUBECONFIG"
-          
+          echo "KUBECONFIG=$(k3d kubeconfig write boutique)" >> $GITHUB_ENV
+
           if ! kubectl cluster-info &>/dev/null; then
-            echo "❌ k3d cluster không chạy! Khởi động cluster trước:"
-            echo "   k3d cluster start boutique"
+            echo "❌ k3d cluster không chạy!"
             exit 1
           fi
           echo "✅ Cluster đang chạy:"
           kubectl get nodes
-
       # ── NAMESPACE SETUP ───────────────────────────────────
       - name: Ensure namespace exists
         run: |
