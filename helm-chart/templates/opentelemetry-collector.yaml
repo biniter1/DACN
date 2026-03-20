@@ -83,6 +83,10 @@ spec:
         - name: collector-gateway-config
           mountPath: /conf
       {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       # This gateway container will receive traces and metrics from each microservice
       # and forward it to GCP

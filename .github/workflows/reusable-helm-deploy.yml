@@ -119,7 +119,7 @@ jobs:
       # ── HELM DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — ${{ inputs.environment }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
+          TAG="latest"
           ECR="${{ steps.tag.outputs.registry }}"
 
           helm upgrade --install boutique ./helm-chart \

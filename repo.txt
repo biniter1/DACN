@@ -1,0 +1,158 @@
+{
+    "repositories": [
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/cartservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/cartservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/cartservice",
+            "createdAt": "2026-03-10T23:11:53.052000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/shippingservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/shippingservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/shippingservice",
+            "createdAt": "2026-03-10T23:12:52.778000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/checkoutservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/checkoutservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/checkoutservice",
+            "createdAt": "2026-03-10T23:21:49.717000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/productcatalogservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/productcatalogservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/productcatalogservice",
+            "createdAt": "2026-03-10T23:35:04.008000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/loadgenerator",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/loadgenerator",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/loadgenerator",
+            "createdAt": "2026-03-10T23:47:11.057000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/paymentservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/paymentservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/paymentservice",
+            "createdAt": "2026-03-10T23:56:45.211000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/currencyservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/currencyservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/currencyservice",
+            "createdAt": "2026-03-11T14:22:41.440000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/adservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/adservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/adservice",
+            "createdAt": "2026-03-11T13:48:17.810000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/frontend",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/frontend",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/frontend",
+            "createdAt": "2026-03-10T22:51:54.589000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/emailservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/emailservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/emailservice",
+            "createdAt": "2026-03-10T23:39:17.654000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:ap-southeast-2:091544734673:repository/online-boutique/recommendationservice",
+            "registryId": "091544734673",
+            "repositoryName": "online-boutique/recommendationservice",
+            "repositoryUri": "091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique/recommendationservice",
+            "createdAt": "2026-03-10T23:02:08.538000+07:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        }
+    ]
+}

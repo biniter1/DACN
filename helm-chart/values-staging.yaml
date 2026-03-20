@@ -83,3 +83,7 @@ securityContext:
 
 seccompProfile:
   enable: false
+
+global:
+  imagePullSecrets:
+    - name: ecr-secret

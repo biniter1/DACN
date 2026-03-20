@@ -51,6 +51,10 @@ spec:
       {{- else }}
       serviceAccountName: default
       {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 5
       restartPolicy: Always
       {{- if .Values.securityContext.enable }}
