@@ -394,11 +394,11 @@ jobs:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
       - name: Wait for staging to stabilize
-        run: sleep 20
+        run: sleep 10
 
       - name: Smoke Tests — endpoints healthy
         run: |
-          BASE="http://localhost:80"   # ← FIX: k3d map port 80 ra localhost
+          BASE="http://boutique.local"   
           for ep in "/" "/cart" "/product/OLJCESPC7Z"; do
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
               "$BASE$ep" --max-time 10 || echo "000")
@@ -412,6 +412,7 @@ jobs:
       - name: Check all pods running
         run: |
           echo "📊 Staging pods:"
+          export KUBECONFIG=$(k3d kubeconfig write boutique)
           kubectl get pods -n boutique-staging
           FAILED=$(kubectl get pods -n boutique-staging \
             --no-headers | grep -v "Running\|Completed" | wc -l)

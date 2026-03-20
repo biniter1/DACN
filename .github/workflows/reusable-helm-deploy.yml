@@ -179,7 +179,7 @@ jobs:
           # k3d maps port 80 ra localhost
           for i in 1 2 3 4 5; do
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-              http://boutique.local --max-time 10 || echo "000")
+              http://boutique.local --max-time 5 || echo "000")
             if [ "$HTTP" == "200" ]; then
               echo "✅ Frontend accessible! HTTP $HTTP"
               exit 0
