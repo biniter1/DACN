@@ -438,10 +438,10 @@ jobs:
   deploy-production:
     name: 🚀 Deploy Production
     needs: integration-tests
-    if: needs.integration-tests.result == 'success'
+    if: always() && needs.integration-tests.result == 'success'
     uses: ./.github/workflows/reusable-helm-deploy.yml
     with:
-      environment: production
+      environment: production 
       namespace: boutique-production
       canary: false   
     secrets: inherit
