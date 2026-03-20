@@ -51,6 +51,9 @@ jobs:
           echo "Docker socket: $(ls -la /var/run/docker.sock)"
           echo "kubectl config:"
           kubectl config view --minify 2>&1 || echo "No kubeconfig"
+          kubectl get pod
+          k3d cluster list
+          export KUBECONFIG=$(k3d kubeconfig write boutique)
           echo "📋 KUBECONFIG env: $KUBECONFIG"
           
           if ! kubectl cluster-info &>/dev/null; then
