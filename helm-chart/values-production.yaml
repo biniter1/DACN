@@ -4,6 +4,10 @@
 # Tighter resource limits, no load generator
 # ============================================================
 
+global:
+  imagePullSecrets:
+    - name: ecr-secret
+    
 images:
   repository: 091544734673.dkr.ecr.ap-southeast-2.amazonaws.com/online-boutique
   tag: "latest"   # pipeline override thành sha-xxxxxx
