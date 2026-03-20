@@ -79,37 +79,35 @@ jobs:
             --values helm-chart/values-${{ inputs.environment }}.yaml \
             --set images.repository="${{ steps.tag.outputs.registry }}/online-boutique" \
             --set images.tag="${{ steps.tag.outputs.tag }}"
-      - name: Attach secret to service account
+      # ── ECR SECRET ───────────────────────────────────────
+      - name: Create ECR secret
         run: |
-          set -e
-
-          REGISTRY="${{ steps.ecr-login.outputs.registry }}"
-          PASSWORD=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }})
-
-          echo "🔐 Creating/Updating ECR secret..."
-
           kubectl create secret docker-registry ecr-secret \
-            --docker-server=$REGISTRY \
+            --docker-server=${{ steps.ecr-login.outputs.registry }} \
             --docker-username=AWS \
-            --docker-password="$PASSWORD" \
+            --docker-password=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }}) \
             --namespace ${{ inputs.namespace }} \
             --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ ECR secret ready"
 
-          echo "✅ Secret ensured"
-
-      # ── ATTACH SECRET TO SERVICE ACCOUNT ───────────────────────
-      - name: Attach secret to service accounts
+      # ── PRE-CREATE SERVICE ACCOUNTS & PATCH ──────────────
+      - name: Pre-create and patch ServiceAccounts
         run: |
-          echo "🔗 Attaching secret to service accounts..."
-
-          for sa in $(kubectl get sa -n ${{ inputs.namespace }} -o jsonpath='{.items[*].metadata.name}'); do
+          # Pre-create SA cho tất cả services trước khi helm deploy
+          for sa in adservice cartservice checkoutservice currencyservice \
+                    emailservice frontend loadgenerator paymentservice \
+                    productcatalogservice recommendationservice shippingservice; do
+            kubectl create serviceaccount $sa \
+              --namespace ${{ inputs.namespace }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+            
             kubectl patch serviceaccount $sa \
-              -n ${{ inputs.namespace }} \
+              --namespace ${{ inputs.namespace }} \
               -p '{"imagePullSecrets":[{"name":"ecr-secret"}]}' \
-              --type=merge || true
+              --type=merge
+            
+            echo "✅ SA ready: $sa"
           done
-
-          echo "✅ imagePullSecret attached"
       # ── HELM DEPLOY ───────────────────────────────────────
       - name: Helm upgrade — ${{ inputs.environment }}
         run: |
