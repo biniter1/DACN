@@ -1,0 +1,81 @@
+name: 🏷️ Create Release (AWS ECR)
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # v1.2.3
+
+jobs:
+  release:
+    name: 🏷️ Tag & Release
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Creating release v$VERSION"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}   # FIX: Sydney
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Retag all service images with semver
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+
+          SERVICES=(
+            frontend cartservice productcatalogservice
+            currencyservice paymentservice shippingservice
+            emailservice checkoutservice recommendationservice
+            adservice loadgenerator
+          )
+
+          for svc in "${SERVICES[@]}"; do
+            SRC="${REGISTRY}/online-boutique/${svc}:sha-${SHA_SHORT}"
+            DST="${REGISTRY}/online-boutique/${svc}:${VERSION}"
+            echo "🏷️ ${svc}: sha-${SHA_SHORT} → ${VERSION}"
+            docker pull "$SRC" || { echo "⚠️ $SRC not found, skipping"; continue; }
+            docker tag "$SRC" "$DST"
+            docker push "$DST"
+            echo "✅ ${svc}:${VERSION} pushed"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: "Online Boutique v${{ steps.version.outputs.version }}"
+          body: |
+            ## 🚀 Release v${{ steps.version.outputs.version }}
+
+            ### Deploy lên k3d
+            ```bash
+            helm upgrade boutique ./helm-chart \
+              --namespace boutique-production \
+              --values helm-chart/values-production.yaml \
+              --set images.tag=${{ steps.version.outputs.version }} \
+              --atomic --wait
+            ```
+
+            ### Rollback
+            ```bash
+            helm rollback boutique -n boutique-production
+            ```

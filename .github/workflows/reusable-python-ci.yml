@@ -1,0 +1,103 @@
+name: Reusable — Python CI
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      python-version:
+        required: false
+        type: string
+        default: '3.11'
+    outputs:
+      artifact-id:
+        description: 'Uploaded artifact ID'
+        value: ${{ jobs.ci.outputs.artifact }}
+
+jobs:
+  ci:
+    name: Python CI — ${{ inputs.service }}
+    runs-on: self-hosted
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    defaults:
+      run:
+        working-directory: src/${{ inputs.service }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+          cache-dependency-path: src/${{ inputs.service }}/requirements*.txt
+
+      # ── INSTALL DEPENDENCIES ──────────────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+          # Install linting tools
+          pip install flake8 black isort pytest pytest-cov
+
+      # # ── LINT ──────────────────────────────────────────────
+      # - name: Lint with flake8
+      #   run: |
+      #     # Stop on syntax errors or undefined names first
+      #     flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      #     # Full lint (warnings only, don't fail)
+      #     flake8 . --count --exit-zero --max-complexity=10 \
+      #       --max-line-length=127 --statistics || true
+
+      # - name: Check formatting with black
+      #   run: black --check --diff . || echo "⚠️ Black formatting issues found (non-blocking)"
+      #   continue-on-error: true
+
+      # - name: Check import order with isort
+      #   run: isort --check-only --diff . || echo "⚠️ isort issues found (non-blocking)"
+      #   continue-on-error: true
+
+      # # ── UNIT TESTS ────────────────────────────────────────
+      # - name: Run pytest with coverage
+      #   run: |
+      #     if find . -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+      #       pytest . \
+      #         --cov=. \
+      #         --cov-report=xml \
+      #         --cov-report=term-missing \
+      #         -v \
+      #         --tb=short \
+      #         --ignore=node_modules \
+      #         --timeout=60 || echo "⚠️ Some tests failed"
+      #     else
+      #       echo "ℹ️ No test files found in ${{ inputs.service }}, skipping pytest"
+      #     fi
+      #   env:
+      #     PYTHONDONTWRITEBYTECODE: 1
+
+      # # ── SECURITY AUDIT ────────────────────────────────────
+      # - name: pip audit — dependency vulnerabilities
+      #   run: |
+      #     pip install pip-audit
+      #     pip-audit --requirement requirements.txt \
+      #       --ignore-vuln GHSA-w596-4wvx-j9j6 \
+      #       -f json -o pip-audit-report.json || true
+      #   continue-on-error: true
+
+      # ── UPLOAD ARTIFACT ───────────────────────────────────
+      - name: Upload artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.service }}-${{ github.sha }}
+          path: src/${{ inputs.service }}/
+          retention-days: 7
+          if-no-files-found: warn

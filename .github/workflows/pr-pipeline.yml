@@ -1,0 +1,205 @@
+name: 🔍 PR Fast Feedback
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+# Cancel previous runs của cùng PR khi có commit mới
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ── DETECT CHANGES ────────────────────────────────────────
+  changes:
+    name: 🔍 Detect Changes
+    runs-on: self-hosted
+    outputs:
+      frontend:              ${{ steps.filter.outputs.frontend }}
+      cartservice:           ${{ steps.filter.outputs.cartservice }}
+      productcatalogservice: ${{ steps.filter.outputs.productcatalogservice }}
+      currencyservice:       ${{ steps.filter.outputs.currencyservice }}
+      paymentservice:        ${{ steps.filter.outputs.paymentservice }}
+      shippingservice:       ${{ steps.filter.outputs.shippingservice }}
+      emailservice:          ${{ steps.filter.outputs.emailservice }}
+      checkoutservice:       ${{ steps.filter.outputs.checkoutservice }}
+      recommendationservice: ${{ steps.filter.outputs.recommendationservice }}
+      adservice:             ${{ steps.filter.outputs.adservice }}
+      loadgenerator:         ${{ steps.filter.outputs.loadgenerator }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/frontend/**'
+            cartservice:
+              - 'src/cartservice/**'
+            productcatalogservice:
+              - 'src/productcatalogservice/**'
+            currencyservice:
+              - 'src/currencyservice/**'
+            paymentservice:
+              - 'src/paymentservice/**'
+            shippingservice:
+              - 'src/shippingservice/**'
+            emailservice:
+              - 'src/emailservice/**'
+            checkoutservice:
+              - 'src/checkoutservice/**'
+            recommendationservice:
+              - 'src/recommendationservice/**'
+            adservice:
+              - 'src/adservice/**'
+            loadgenerator:
+              - 'src/loadgenerator/**'
+
+  # ── QUICK LINT (chỉ services thay đổi) ───────────────────
+  quick-lint:
+    name: 🔍 Quick Lint
+    needs: changes
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Go (for Go services)
+        if: |
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.checkoutservice == 'true' ||
+          needs.changes.outputs.productcatalogservice == 'true' ||
+          needs.changes.outputs.shippingservice == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Node.js (for Node services)
+        if: |
+          needs.changes.outputs.currencyservice == 'true' ||
+          needs.changes.outputs.paymentservice == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python (for Python services)
+        if: |
+          needs.changes.outputs.emailservice == 'true' ||
+          needs.changes.outputs.recommendationservice == 'true' ||
+          needs.changes.outputs.loadgenerator == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install linters
+        run: |
+          # Go linter
+          if command -v go &> /dev/null; then
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest || true
+          fi
+          # Python linters
+          if command -v python3 &> /dev/null; then
+            pip install flake8 black --quiet || true
+          fi
+
+      - name: Run linters on changed services
+        run: |
+          set +e  # Don't exit on first error, collect all
+          FAILED=0
+
+          # Go services
+          for svc in frontend checkoutservice productcatalogservice shippingservice; do
+            if [ -d "src/$svc" ] && [ "${{ needs.changes.outputs[svc] }}" == "true" ]; then
+              echo "🔍 Linting $svc (Go)..."
+              cd src/$svc
+              golangci-lint run ./... --fast --timeout=3m 2>&1 || FAILED=1
+              cd $GITHUB_WORKSPACE
+            fi
+          done
+
+          # Node.js services
+          for svc in currencyservice paymentservice; do
+            if [ -d "src/$svc" ] && [ "${{ needs.changes.outputs[svc] }}" == "true" ]; then
+              echo "🔍 Linting $svc (Node.js)..."
+              cd src/$svc
+              npm ci --quiet 2>/dev/null && npm run lint 2>&1 || FAILED=1
+              cd $GITHUB_WORKSPACE
+            fi
+          done
+
+          # Python services
+          for svc in emailservice recommendationservice loadgenerator; do
+            if [ -d "src/$svc" ] && [ "${{ needs.changes.outputs[svc] }}" == "true" ]; then
+              echo "🔍 Linting $svc (Python)..."
+              cd src/$svc
+              flake8 . --select=E9,F63,F7,F82 2>&1 || FAILED=1
+              cd $GITHUB_WORKSPACE
+            fi
+          done
+
+          exit $FAILED
+
+  # ── SECRETS SCAN (luôn chạy trên PR) ─────────────────────
+  secrets-scan:
+    name: 🔑 Secrets Scan
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── PR COMMENT với kết quả ────────────────────────────────
+  pr-comment:
+    name: 💬 PR Status Comment
+    needs: [quick-lint, secrets-scan]
+    runs-on: self-hosted
+    if: always()
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const lint = '${{ needs.quick-lint.result }}';
+            const secrets = '${{ needs.secrets-scan.result }}';
+            const overall = (lint === 'success' && secrets === 'success') ? '✅' : '❌';
+
+            const body = `## ${overall} PR CI Results
+
+            | Check | Status |
+            |-------|--------|
+            | 🔍 Lint | ${lint === 'success' ? '✅ Passed' : lint === 'skipped' ? '⏭️ Skipped' : '❌ Failed'} |
+            | 🔑 Secrets Scan | ${secrets === 'success' ? '✅ Passed' : '❌ Failed'} |
+
+            > 💡 Docker build và deploy **không chạy trên PR** — chỉ chạy khi merge vào \`main\`
+
+            **Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            // Tìm comment cũ và update thay vì tạo mới
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('PR CI Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }

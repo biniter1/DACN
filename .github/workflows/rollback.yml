@@ -1,0 +1,71 @@
+name: ⏪ Emergency Rollback (k3d)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [staging, production]
+      revision:
+        description: 'Helm revision (để trống = rollback về trước đó)'
+        required: false
+        type: string
+      reason:
+        description: 'Lý do rollback (bắt buộc)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: ⏪ Rollback ${{ inputs.environment }}
+    runs-on: self-hosted
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check cluster
+        run: |
+          kubectl cluster-info || { echo "❌ Cluster không chạy!"; exit 1; }
+
+      - name: Show current state
+        run: |
+          NS="boutique-${{ inputs.environment }}"
+          echo "📊 Helm history:"
+          helm history boutique -n "$NS" 2>/dev/null || echo "No history"
+          echo "📊 Pods:"
+          kubectl get pods -n "$NS" 2>/dev/null || echo "No pods"
+
+      - name: Execute rollback
+        run: |
+          NS="boutique-${{ inputs.environment }}"
+          REVISION="${{ inputs.revision }}"
+
+          if [ -z "$REVISION" ]; then
+            echo "⏪ Rollback về revision trước..."
+            helm rollback boutique -n "$NS"
+          else
+            echo "⏪ Rollback về revision $REVISION..."
+            helm rollback boutique "$REVISION" -n "$NS"
+          fi
+
+          kubectl rollout status deployment -n "$NS" --timeout=3m
+          echo "✅ Rollback hoàn tất!"
+          kubectl get pods -n "$NS"
+
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Create incident issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString();
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔴 [ROLLBACK] ${context.payload.inputs.environment} — ${date}`,
+              body: `## Rollback Record\n\n| Field | Value |\n|-------|-------|\n| **Env** | ${context.payload.inputs.environment} |\n| **By** | ${context.actor} |\n| **Reason** | ${context.payload.inputs.reason} |\n| **Time** | ${date} |\n| **Run** | [Link](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) |\n\n- [ ] Investigate root cause\n- [ ] Fix and redeploy`,
+              labels: ['incident', 'rollback']
+            });

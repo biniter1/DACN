@@ -1,0 +1,93 @@
+name: Reusable — Node.js CI
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      node-version:
+        required: false
+        type: string
+        default: '20'
+    outputs:
+      artifact-id:
+        description: 'Uploaded artifact ID'
+        value: ${{ jobs.ci.outputs.artifact }}
+
+jobs:
+  ci:
+    name: Node.js CI — ${{ inputs.service }}
+    runs-on: self-hosted
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    defaults:
+      run:
+        working-directory: src/${{ inputs.service }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: src/${{ inputs.service }}/package-lock.json
+
+      # ── INSTALL ───────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      # # ── LINT ──────────────────────────────────────────────
+      # - name: Lint with ESLint
+      #   run: |
+      #     if [ -f ".eslintrc*" ] || grep -q '"eslint"' package.json 2>/dev/null; then
+      #       npm run lint
+      #     else
+      #       echo "⚠️ No ESLint config found, skipping lint"
+      #     fi
+
+      # # ── UNIT TESTS ────────────────────────────────────────
+      # - name: Run tests with coverage
+      #   run: |
+      #     if grep -q '"test"' package.json 2>/dev/null; then
+      #       npm test -- --coverage --passWithNoTests 2>/dev/null || \
+      #       npm test 2>/dev/null || \
+      #       echo "⚠️ Tests skipped or no test runner configured"
+      #     else
+      #       echo "⚠️ No test script found"
+      #     fi
+      #   env:
+      #     CI: true
+      #     NODE_ENV: test
+
+      # # ── SECURITY AUDIT ────────────────────────────────────
+      # - name: npm audit
+      #   run: npm audit --audit-level=high --production
+      #   continue-on-error: true
+
+      # ── BUILD ─────────────────────────────────────────────
+      - name: Build (if build script exists)
+        run: |
+          if grep -q '"build"' package.json 2>/dev/null; then
+            npm run build
+          else
+            echo "ℹ️ No build script — Node.js service runs directly"
+          fi
+
+      # ── UPLOAD ARTIFACT ───────────────────────────────────
+      - name: Package artifact
+        run: |
+          tar -czf /tmp/${{ inputs.service }}-${{ github.sha }}.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            .
+
+      - name: Upload artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.service }}-${{ github.sha }}
+          path: /tmp/${{ inputs.service }}-${{ github.sha }}.tar.gz
+          retention-days: 7

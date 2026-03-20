@@ -1,0 +1,89 @@
+name: Reusable — .NET CI
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      dotnet-version:
+        required: false
+        type: string
+        default: '8.0'
+    outputs:
+      artifact-id:
+        description: 'Publish artifact ID'
+        value: ${{ jobs.ci.outputs.artifact }}
+
+jobs:
+  ci:
+    name: .NET CI — ${{ inputs.service }}
+    runs-on: self-hosted
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    defaults:
+      run:
+        working-directory: src/${{ inputs.service }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup .NET ${{ inputs.dotnet-version }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      # FIX: cache key dùng inputs.service thay vì hardcode cartservice
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ inputs.service }}-${{ hashFiles('src/${{ inputs.service }}/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ inputs.service }}-
+
+      # ── RESTORE ───────────────────────────────────────────
+      - name: Restore dependencies
+        run: dotnet restore
+
+      # # ── LINT ──────────────────────────────────────────────
+      # - name: dotnet format check
+      #   run: dotnet format --verify-no-changes --verbosity diagnostic
+      #   continue-on-error: true  # Format issues không block
+
+      # ── BUILD ─────────────────────────────────────────────
+      - name: Build
+        run: |
+          dotnet build \
+            --no-restore \
+            --configuration Release \
+            -p:Version=${{ github.run_number }}.0.0
+
+      # # ── TESTS ─────────────────────────────────────────────
+      # - name: Run tests
+      #   run: |
+      #     dotnet test \
+      #       --no-build \
+      #       --configuration Release \
+      #       --collect:"XPlat Code Coverage" \
+      #       --results-directory ./coverage \
+      #       --logger "trx;LogFileName=test-results.trx" \
+      #       -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      #   continue-on-error: true
+
+      # ── PUBLISH ───────────────────────────────────────────
+      - name: Publish
+        run: |
+          dotnet publish \
+            --no-build \
+            --configuration Release \
+            --output ./publish
+
+      # FIX: artifact name dùng inputs.service thay vì hardcode cartservice
+      - name: Upload publish artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.service }}-publish-${{ github.sha }}
+          path: src/${{ inputs.service }}/publish/
+          retention-days: 7

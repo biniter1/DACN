@@ -1,0 +1,148 @@
+name: Reusable — Docker Build & Push (AWS ECR)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      context:
+        required: true
+        type: string
+      platforms:
+        required: false
+        type: string
+        default: 'linux/amd64'
+      dockerfile:
+        required: false
+        type: string
+        default: 'Dockerfile'
+    outputs:
+      image-digest:
+        description: 'Image digest'
+        value: ${{ jobs.docker.outputs.digest }}
+      image-tag:
+        description: 'Image tag'
+        value: ${{ jobs.docker.outputs.tag }}
+
+jobs:
+  docker:
+    name: 🐳 Docker — ${{ inputs.service }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      id-token: write        
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      # ── SETUP BUILDX ──────────────────────────────────────
+      - uses: docker/setup-buildx-action@v3
+
+      # ── AWS OIDC AUTH  ─────────
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
+
+      # ── LOGIN TO ECR ──────────────────────────────────────
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── TẠO ECR REPO NẾU CHƯA TỒN TẠI ───────────────────
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories \
+            --repository-names online-boutique/${{ inputs.service }} \
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }} 2>/dev/null || \
+          aws ecr create-repository \
+            --repository-name online-boutique/${{ inputs.service }} \
+            --image-scanning-configuration scanOnPush=true \
+            --region ${{ secrets.AWS_REGION || 'ap-southeast-1' }}
+
+      # ── GENERATE TAGS ─────────────────────────────────────
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch,suffix=-${{ github.sha }}
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=${{ inputs.service }}
+            org.opencontainers.image.description=Online Boutique — ${{ inputs.service }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: List files for debugging
+        run: |
+          echo "Listing files in context: ${{ inputs.context }}"
+          ls -R ${{ inputs.context }} | grep Dockerfile
+      # ── BUILD & PUSH ──────────────────────────────────────
+      - name: Build and push to ECR
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}:buildcache
+          cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}:buildcache,mode=max
+
+      # # ── CONTAINER VULNERABILITY SCAN ─────────────────────
+      # - name: Trivy — Container scan
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     image-ref: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #     format: sarif
+      #     output: trivy-${{ inputs.service }}.sarif
+      #     severity: CRITICAL,HIGH
+      #     ignore-unfixed: true
+      #     exit-code: '1'
+      #   continue-on-error: true  
+
+      # - name: Upload Trivy results to GitHub Security
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   if: always()
+      #   with:
+      #     sarif_file: trivy-${{ inputs.service }}.sarif
+
+      # # ── SBOM GENERATION ───────────────────────────────────
+      # - name: Generate SBOM with Syft
+      #   uses: anchore/sbom-action@v0
+      #   with:
+      #     image: ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #     format: spdx-json
+      #     output-file: sbom-${{ inputs.service }}.spdx.json
+
+      # - name: Upload SBOM artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: sbom-${{ inputs.service }}-${{ github.sha }}
+      #     path: sbom-${{ inputs.service }}.spdx.json
+      #     retention-days: 365
+
+      # # ── IMAGE SIGNING với Cosign ──────────────────────────
+      # - name: Install Cosign
+      #   uses: sigstore/cosign-installer@v3
+
+      # - name: Sign image with Cosign (keyless OIDC)
+      #   run: |
+      #     cosign sign --yes \
+      #       ${{ steps.ecr-login.outputs.registry }}/online-boutique/${{ inputs.service }}@${{ steps.build.outputs.digest }}
+      #   env:
+      #     COSIGN_EXPERIMENTAL: 1

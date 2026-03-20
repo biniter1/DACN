@@ -1,0 +1,227 @@
+name: Reusable — Helm Deploy (k3d local)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      namespace:
+        required: true
+        type: string
+      canary:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      deploy-url:
+        description: 'Deployed app URL'
+        value: ${{ jobs.deploy.outputs.url }}
+
+jobs:
+  deploy:
+    name: Deploy → ${{ inputs.environment }}
+    # ── QUAN TRỌNG: chạy trên máy bạn, không phải GitHub cloud ──
+    runs-on: self-hosted
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.get-url.outputs.url }}
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      # ── AWS ECR LOGIN (lấy image) ─────────────────────────
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── VERIFY k3d CLUSTER RUNNING ────────────────────────
+      - name: Check k3d cluster
+        run: |
+          echo "User: $(whoami)"
+          echo "Groups: $(groups)"
+          echo "Docker socket: $(ls -la /var/run/docker.sock)"
+          echo "kubectl config:"
+          kubectl config view --minify 2>&1 || echo "No kubeconfig"
+          echo "📋 KUBECONFIG env: $KUBECONFIG"
+          
+          if ! kubectl cluster-info &>/dev/null; then
+            echo "❌ k3d cluster không chạy! Khởi động cluster trước:"
+            echo "   k3d cluster start boutique"
+            exit 1
+          fi
+          echo "✅ Cluster đang chạy:"
+          kubectl get nodes
+
+      # ── NAMESPACE SETUP ───────────────────────────────────
+      - name: Ensure namespace exists
+        run: |
+          kubectl create namespace ${{ inputs.namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Namespace: ${{ inputs.namespace }}"
+
+      # ── IMAGE TAG ─────────────────────────────────────────
+      - name: Get image tag
+        id: tag
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          TAG="sha-${SHA_SHORT}"
+          ECR="${{ steps.ecr-login.outputs.registry }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "registry=${ECR}" >> $GITHUB_OUTPUT
+          echo "📦 Deploying tag: ${TAG}"
+      - name: Helm template debug
+        run: |
+          helm template boutique ./helm-chart \
+            --namespace ${{ inputs.namespace }} \
+            --values helm-chart/values-${{ inputs.environment }}.yaml \
+            --set images.repository="${{ steps.tag.outputs.registry }}/online-boutique" \
+            --set images.tag="${{ steps.tag.outputs.tag }}"
+      - name: Attach secret to service account
+        run: |
+          set -e
+
+          REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+          PASSWORD=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION || 'ap-southeast-2' }})
+
+          echo "🔐 Creating/Updating ECR secret..."
+
+          kubectl create secret docker-registry ecr-secret \
+            --docker-server=$REGISTRY \
+            --docker-username=AWS \
+            --docker-password="$PASSWORD" \
+            --namespace ${{ inputs.namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "✅ Secret ensured"
+
+      # ── ATTACH SECRET TO SERVICE ACCOUNT ───────────────────────
+      - name: Attach secret to service accounts
+        run: |
+          echo "🔗 Attaching secret to service accounts..."
+
+          for sa in $(kubectl get sa -n ${{ inputs.namespace }} -o jsonpath='{.items[*].metadata.name}'); do
+            kubectl patch serviceaccount $sa \
+              -n ${{ inputs.namespace }} \
+              -p '{"imagePullSecrets":[{"name":"ecr-secret"}]}' \
+              --type=merge || true
+          done
+
+          echo "✅ imagePullSecret attached"
+      # ── HELM DEPLOY ───────────────────────────────────────
+      - name: Helm upgrade — ${{ inputs.environment }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          ECR="${{ steps.tag.outputs.registry }}"
+
+          helm upgrade --install boutique ./helm-chart \
+          --namespace ${{ inputs.namespace }} \
+          --values helm-chart/values-${{ inputs.environment }}.yaml \
+          --set images.repository="${ECR}/online-boutique" \
+          --set images.tag="${TAG}" \
+          --set global.imagePullSecrets[0].name=ecr-secret \
+          --atomic \
+          --timeout 8m \
+          --wait
+      - name: Debug pods
+        if: failure()
+        run: |
+          echo "===== Pods ====="
+          kubectl get pods -n ${{ inputs.namespace }} -o wide
+
+          echo "===== Describe pods ====="
+          for p in $(kubectl get pods -n ${{ inputs.namespace }} -o name); do
+            echo "---- $p ----"
+            kubectl describe $p -n ${{ inputs.namespace }}
+          done
+
+          echo "===== Logs ====="
+          for p in $(kubectl get pods -n ${{ inputs.namespace }} -o name); do
+            kubectl logs $p -n ${{ inputs.namespace }} --tail=50 || true
+          done
+      # ── VERIFY DEPLOY ─────────────────────────────────────
+      - name: Verify pods running
+        run: |
+          echo "⏳ Waiting for all pods..."
+          kubectl wait --for=condition=ready pod \
+            --all \
+            -n ${{ inputs.namespace }} \
+            --timeout=300s || true
+
+          echo "📊 Pod status:"
+          kubectl get pods -n ${{ inputs.namespace }}
+
+          # Đếm pods không Ready
+          NOT_READY=$(kubectl get pods -n ${{ inputs.namespace }} \
+            --no-headers | grep -v "Running\|Completed" | wc -l)
+          if [ "$NOT_READY" -gt "0" ]; then
+            echo "⚠️ $NOT_READY pods chưa Ready:"
+            kubectl get pods -n ${{ inputs.namespace }} | grep -v "Running\|Completed"
+          fi
+
+      - name: Get frontend URL
+        id: get-url
+        run: |
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            echo "url=http://localhost:80 (production)" >> $GITHUB_OUTPUT
+          else
+            echo "url=http://localhost:80 (staging)" >> $GITHUB_OUTPUT
+          fi
+
+      # ── SMOKE TEST ────────────────────────────────────────
+      - name: Smoke test — frontend accessible
+        run: |
+          echo "⏳ Waiting 15s for LoadBalancer..."
+          sleep 15
+
+          # k3d maps port 80 ra localhost
+          for i in 1 2 3 4 5; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:80 --max-time 10 || echo "000")
+            if [ "$HTTP" == "200" ]; then
+              echo "✅ Frontend accessible! HTTP $HTTP"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP — waiting 10s..."
+            sleep 10
+          done
+          echo "⚠️ Frontend chưa accessible sau 5 lần thử (có thể vẫn đang khởi động)"
+          # Không fail pipeline — chỉ warn
+
+      # ── NOTIFY ────────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace | ${{ inputs.namespace }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ steps.tag.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Access app:** http://localhost:80" >> $GITHUB_STEP_SUMMARY
+
+  # ── AUTO ROLLBACK NẾU PRODUCTION FAIL ─────────────────────
+  rollback-on-failure:
+    name: ⏪ Auto Rollback
+    needs: deploy
+    if: failure() && inputs.environment == 'production'
+    runs-on: self-hosted
+    steps:
+      - name: Helm rollback
+        run: |
+          echo "⏪ Rolling back boutique in ${{ inputs.namespace }}..."
+          helm rollback boutique -n ${{ inputs.namespace }} || true
+          kubectl rollout status deployment \
+            -n ${{ inputs.namespace }} --timeout=3m || true
+          echo "✅ Rollback done"
+          kubectl get pods -n ${{ inputs.namespace }}

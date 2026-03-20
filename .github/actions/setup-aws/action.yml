@@ -1,0 +1,48 @@
+name: 'Setup AWS + kubectl'
+description: 'Authenticate to AWS via OIDC and configure kubectl for EKS'
+
+inputs:
+  role-arn:
+    description: 'IAM Role ARN to assume (OIDC)'
+    required: true
+  aws-region:
+    description: 'AWS Region'
+    required: false
+    default: 'ap-southeast-2'
+  cluster-name:
+    description: 'EKS cluster name'
+    required: true
+
+outputs:
+  ecr-registry:
+    description: 'ECR registry URL'
+    value: ${{ steps.ecr-login.outputs.registry }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure AWS Credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to Amazon ECR
+      id: ecr-login
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        region: ${{ inputs.aws-region }}
+
+    - name: Configure kubectl for EKS
+      shell: bash
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ inputs.cluster-name }} \
+          --region ${{ inputs.aws-region }}
+        echo "✅ kubectl configured for cluster: ${{ inputs.cluster-name }}"
+        kubectl cluster-info --request-timeout=5s
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: 'v3.14.0'

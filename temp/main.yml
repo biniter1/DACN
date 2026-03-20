@@ -1,0 +1,462 @@
+name: 🏭 Online Boutique — Main Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Force rebuild all services'
+        type: boolean
+        default: false
+      target_env:
+        description: 'Deploy target'
+        type: choice
+        options: [staging, production, staging-only]
+        default: staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com
+  APP: online-boutique
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  security-events: write
+  packages: write
+
+jobs:
+  # ════════════════════════════════════════════════════
+  # STAGE 1: DETECT CHANGES
+  # ════════════════════════════════════════════════════
+  changes:
+    name: 🔍 Detect Changed Services
+    runs-on: [self-hosted, linux, k3d]
+    outputs:
+      frontend:              ${{ steps.filter.outputs.frontend }}
+      cartservice:           ${{ steps.filter.outputs.cartservice }}
+      productcatalogservice: ${{ steps.filter.outputs.productcatalogservice }}
+      currencyservice:       ${{ steps.filter.outputs.currencyservice }}
+      paymentservice:        ${{ steps.filter.outputs.paymentservice }}
+      shippingservice:       ${{ steps.filter.outputs.shippingservice }}
+      emailservice:          ${{ steps.filter.outputs.emailservice }}
+      checkoutservice:       ${{ steps.filter.outputs.checkoutservice }}
+      recommendationservice: ${{ steps.filter.outputs.recommendationservice }}
+      adservice:             ${{ steps.filter.outputs.adservice }}
+      loadgenerator:         ${{ steps.filter.outputs.loadgenerator }}
+      helm_changed:          ${{ steps.filter.outputs.helm }}
+      k8s_changed:           ${{ steps.filter.outputs.k8s }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/frontend/**'
+              - 'protos/**'
+            cartservice:
+              - 'src/cartservice/**'
+            productcatalogservice:
+              - 'src/productcatalogservice/**'
+              - 'protos/**'
+            currencyservice:
+              - 'src/currencyservice/**'
+            paymentservice:
+              - 'src/paymentservice/**'
+            shippingservice:
+              - 'src/shippingservice/**'
+              - 'protos/**'
+            emailservice:
+              - 'src/emailservice/**'
+            checkoutservice:
+              - 'src/checkoutservice/**'
+              - 'protos/**'
+            recommendationservice:
+              - 'src/recommendationservice/**'
+              - 'protos/**'
+            adservice:
+              - 'src/adservice/**'
+              - 'protos/**'
+            loadgenerator:
+              - 'src/loadgenerator/**'
+            helm:
+              - 'helm-chart/**'
+            k8s:
+              - 'kubernetes-manifests/**'
+              - 'kustomize/**'
+
+  # ════════════════════════════════════════════════════
+  # STAGE 2: CI — Go Services
+  # ════════════════════════════════════════════════════
+  ci-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-go-ci.yml
+    with:
+      service: frontend
+      go-version: '1.21'
+    secrets: inherit
+
+  ci-checkoutservice:
+    needs: changes
+    if: needs.changes.outputs.checkoutservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-go-ci.yml
+    with:
+      service: checkoutservice
+      go-version: '1.21'
+    secrets: inherit
+
+  ci-productcatalogservice:
+    needs: changes
+    if: needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-go-ci.yml
+    with:
+      service: productcatalogservice
+      go-version: '1.21'
+    secrets: inherit
+
+  ci-shippingservice:
+    needs: changes
+    if: needs.changes.outputs.shippingservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-go-ci.yml
+    with:
+      service: shippingservice
+      go-version: '1.21'
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # CI — Node.js Services
+  # ════════════════════════════════════════════════════
+  ci-currencyservice:
+    needs: changes
+    if: needs.changes.outputs.currencyservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-nodejs-ci.yml
+    with:
+      service: currencyservice
+      node-version: '20'
+    secrets: inherit
+
+  ci-paymentservice:
+    needs: changes
+    if: needs.changes.outputs.paymentservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-nodejs-ci.yml
+    with:
+      service: paymentservice
+      node-version: '20'
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # CI — Python Services
+  # ════════════════════════════════════════════════════
+  ci-emailservice:
+    needs: changes
+    if: needs.changes.outputs.emailservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      service: emailservice
+      python-version: '3.11'
+    secrets: inherit
+
+  ci-recommendationservice:
+    needs: changes
+    if: needs.changes.outputs.recommendationservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      service: recommendationservice
+      python-version: '3.11'
+    secrets: inherit
+
+  ci-loadgenerator:
+    needs: changes
+    if: needs.changes.outputs.loadgenerator == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      service: loadgenerator
+      python-version: '3.11'
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # CI — Java Service
+  # ════════════════════════════════════════════════════
+  ci-adservice:
+    needs: changes
+    if: needs.changes.outputs.adservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-java-ci.yml
+    with:
+      service: adservice
+      java-version: '17'
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # CI — C# Service
+  # ════════════════════════════════════════════════════
+  ci-cartservice:
+    needs: changes
+    if: needs.changes.outputs.cartservice == 'true' || inputs.force_all
+    uses: ./.github/workflows/reusable-dotnet-ci.yml
+    with:
+      service: cartservice
+      dotnet-version: '8.0'
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # STAGE 3: SECURITY SCAN
+  # ════════════════════════════════════════════════════
+  # security:
+  #   name: 🔒 Security Gate
+  #   needs:
+  #     - ci-frontend
+  #     - ci-checkoutservice
+  #     - ci-productcatalogservice
+  #     - ci-shippingservice
+  #     - ci-currencyservice
+  #     - ci-paymentservice
+  #     - ci-emailservice
+  #     - ci-recommendationservice
+  #     - ci-adservice
+  #     - ci-cartservice
+  #     - ci-loadgenerator
+  #   if: always() && !contains(needs.*.result, 'failure')
+  #   permissions:           
+  #     actions: read
+  #     contents: read
+  #     security-events: write
+  #   uses: ./.github/workflows/reusable-security-scan.yml
+  #   secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # STAGE 4: DOCKER BUILD
+  # ════════════════════════════════════════════════════
+  docker-frontend:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.frontend == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: frontend
+      context: src/frontend
+    secrets: inherit
+
+  docker-cartservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.cartservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: cartservice
+      context: src/cartservice
+    secrets: inherit
+
+  docker-productcatalogservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.productcatalogservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: productcatalogservice
+      context: src/productcatalogservice
+    secrets: inherit
+
+  docker-currencyservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.currencyservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: currencyservice
+      context: src/currencyservice
+    secrets: inherit
+
+  docker-paymentservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.paymentservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: paymentservice
+      context: src/paymentservice
+    secrets: inherit
+
+  docker-shippingservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.shippingservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: shippingservice
+      context: src/shippingservice
+    secrets: inherit
+
+  docker-emailservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.emailservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: emailservice
+      context: src/emailservice
+    secrets: inherit
+
+  docker-checkoutservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.checkoutservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: checkoutservice
+      context: src/checkoutservice
+    secrets: inherit
+
+  docker-recommendationservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.recommendationservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: recommendationservice
+      context: src/recommendationservice
+    secrets: inherit
+
+  docker-adservice:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.adservice == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: adservice
+      context: src/adservice
+    secrets: inherit
+
+  docker-loadgenerator:
+    needs: [security, changes]
+    if: |
+      needs.security.result == 'success' &&
+      (needs.changes.outputs.loadgenerator == 'true' || inputs.force_all) &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      service: loadgenerator
+      context: src/loadgenerator
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # STAGE 5: DEPLOY STAGING
+  # FIX: bỏ "cluster" input — k3d không cần
+  # ════════════════════════════════════════════════════
+  deploy-staging:
+    name: 🎭 Deploy Staging
+    needs:
+      - docker-frontend
+      - docker-cartservice
+      - docker-productcatalogservice
+      - docker-currencyservice
+      - docker-paymentservice
+      - docker-shippingservice
+      - docker-emailservice
+      - docker-checkoutservice
+      - docker-recommendationservice
+      - docker-adservice
+      - docker-loadgenerator
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/reusable-helm-deploy.yml
+    with:
+      environment: staging
+      namespace: boutique-staging
+      canary: false
+    secrets: inherit
+
+  # ════════════════════════════════════════════════════
+  # STAGE 6: INTEGRATION TESTS
+  # FIX: chạy trên self-hosted runner, dùng localhost
+  # ════════════════════════════════════════════════════
+  integration-tests:
+    name: 🧪 Integration Tests
+    needs: deploy-staging
+    runs-on: [self-hosted, linux, k3d]   
+    if: needs.deploy-staging.result == 'success'
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Wait for staging to stabilize
+        run: sleep 20
+
+      - name: Smoke Tests — endpoints healthy
+        run: |
+          BASE="http://localhost:80"   # ← FIX: k3d map port 80 ra localhost
+          for ep in "/" "/cart" "/product/OLJCESPC7Z"; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              "$BASE$ep" --max-time 10 || echo "000")
+            if [ "$HTTP" == "200" ]; then
+              echo "✅ $ep → $HTTP"
+            else
+              echo "⚠️ $ep → $HTTP (non-blocking)"
+            fi
+          done
+
+      - name: Check all pods running
+        run: |
+          echo "📊 Staging pods:"
+          kubectl get pods -n boutique-staging
+          FAILED=$(kubectl get pods -n boutique-staging \
+            --no-headers | grep -v "Running\|Completed" | wc -l)
+          if [ "$FAILED" -gt "0" ]; then
+            echo "⚠️ $FAILED pods not Running:"
+            kubectl get pods -n boutique-staging | grep -v "Running\|Completed"
+          else
+            echo "✅ All pods Running!"
+          fi
+
+      - name: Upload test summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n boutique-staging --no-headers | \
+            awk '{print "| " $1 " | " $3 " |"}' >> $GITHUB_STEP_SUMMARY
+
+  # ════════════════════════════════════════════════════
+  # STAGE 7+8: MANUAL APPROVAL → DEPLOY PRODUCTION
+  # ════════════════════════════════════════════════════
+  deploy-production:
+    name: 🚀 Deploy Production
+    needs: integration-tests
+    if: needs.integration-tests.result == 'success'
+    uses: ./.github/workflows/reusable-helm-deploy.yml
+    with:
+      environment: production
+      namespace: boutique-production
+      canary: false   # k3d không cần canary — đơn giản hóa
+    secrets: inherit
