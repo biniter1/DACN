@@ -389,7 +389,7 @@ jobs:
     name: 🧪 Integration Tests
     needs: deploy-staging
     runs-on: self-hosted  
-    if: needs.deploy-staging.result == 'success'
+    if: always() && needs.deploy-staging.result == 'success'
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
