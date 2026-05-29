@@ -1,4 +1,3 @@
-# modules/ecr/main.tf — CẦN TẠO MỚI
 locals {
   services = [
     "frontend", "cartservice", "productcatalogservice",
@@ -16,17 +15,27 @@ resource "aws_ecr_repository" "services" {
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  tags = {
+    ManagedBy   = "Terraform"
+    Environment = "baseline"
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "cleanup" {
   for_each   = aws_ecr_repository.services
   repository = each.value.name
+
   policy = jsonencode({
     rules = [{
       rulePriority = 1
       description  = "Keep last 10 images"
-      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 10 }
-      action       = { type = "expire" }
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = { type = "expire" }
     }]
   })
 }

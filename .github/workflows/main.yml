@@ -39,7 +39,7 @@ jobs:
   # ════════════════════════════════════════════════════
   changes:
     name: 🔍 Detect Changed Services
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       frontend:              ${{ steps.filter.outputs.frontend }}
       cartservice:           ${{ steps.filter.outputs.cartservice }}
@@ -388,7 +388,7 @@ jobs:
   integration-tests:
     name: 🧪 Integration Tests
     needs: deploy-staging
-    runs-on: self-hosted  
+    runs-on: ubuntu-latest 
     if: always() && needs.deploy-staging.result == 'success'
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11

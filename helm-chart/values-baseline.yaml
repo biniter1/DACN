@@ -1,0 +1,211 @@
+# ============================================================
+# values-baseline.yaml — Môi trường BASELINE
+#
+# Định nghĩa: "Security cơ bản thông thường, KHÔNG Zero Trust"
+# Tương đương mức độ nhiều team startup/mid-size áp dụng:
+#
+# CÓ (security hygiene cơ bản):
+#   ✅ securityContext: runAsNonRoot, readOnlyRootFilesystem, drop ALL caps
+#   ✅ Resource limits (tránh DoS nội bộ)
+#   ✅ Namespace isolation (staging riêng)
+#   ✅ ECR scanOnPush = true (passive scan)
+#   ✅ Gitleaks trên PR (non-blocking, chỉ báo cáo)
+#
+# KHÔNG CÓ (thiếu Zero Trust controls):
+#   ❌ NetworkPolicy              → KH3: lateral movement tự do
+#   ❌ Cosign image signing       → KH2: malicious image deploy được
+#   ❌ Kyverno admission control  → KH2: không ai chặn kubectl apply
+#   ❌ Falco runtime detection    → KH4: exec vào pod không bị phát hiện
+#   ❌ RBAC granular per-service  → KH4, KH5: read secrets tự do
+#   ❌ automountServiceAccountToken: false  → KH5: token bị lộ
+#   ❌ OIDC/dynamic credential    → KH1: long-lived key lưu GitHub Secrets
+#   ❌ Secrets Manager / ESO      → KH4: secret lưu plain text env var
+#   ❌ seccompProfile             → không có syscall filtering
+#   ❌ Branch protection CI-required → KH6: pipeline có thể bị xóa/sửa
+# ============================================================
+
+global:
+  imagePullSecrets:
+    - name: ecr-secret
+
+images:
+  # Baseline dùng ECR cùng account, region ap-southeast-1 (same as ZT)
+  repository: 492462084314.dkr.ecr.ap-southeast-1.amazonaws.com/online-boutique
+  tag: "latest"
+
+# ── BASELINE: NetworkPolicy TẮT ─────────────────────────────
+# Không có micro-segmentation → bất kỳ pod nào cũng curl được
+# pod khác trong cluster (demo KH3: lateral movement)
+networkPolicies:
+  create: false
+
+# ── BASELINE: Không có Istio / service mesh ─────────────────
+sidecars:
+  create: false
+authorizationPolicies:
+  create: false
+
+# ── BASELINE: ServiceAccount mặc định ───────────────────────
+# automountServiceAccountToken KHÔNG tắt
+# → Token tự động mount vào mọi pod (demo KH5)
+# → Default SA không bị restrict bởi RBAC granular
+serviceAccounts:
+  create: true
+  annotations: {}
+  annotationsOnlyForCartservice: false
+
+cartDatabase:
+  type: redis
+  connectionString: "redis-cart:6379"
+  inClusterRedis:
+    create: true
+    name: redis-cart
+    publicRepository: true
+
+loadGenerator:
+  create: true
+  name: loadgenerator
+  checkFrontendInitContainer: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+opentelemetryCollector:
+  create: false
+googleCloudOperations:
+  profiler: false
+  tracing: false
+  metrics: false
+
+# ── BASELINE: securityContext CƠ BẢN ────────────────────────
+# Đây là hygiene thông thường, không phải Zero Trust
+# runAsNonRoot=true, readOnlyRootFilesystem=true, drop: [ALL]
+securityContext:
+  enable: true
+
+# ── BASELINE: seccompProfile TẮT ────────────────────────────
+# Không lọc syscall → attacker có thể gọi syscall nguy hiểm
+seccompProfile:
+  enable: false
+
+# ── SERVICES ─────────────────────────────────────────────────
+adService:
+  create: true
+  name: adservice
+  resources:
+    requests:
+      cpu: 200m
+      memory: 180Mi
+    limits:
+      cpu: 300m
+      memory: 300Mi
+
+cartService:
+  create: true
+  name: cartservice
+  resources:
+    requests:
+      cpu: 200m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+checkoutService:
+  create: true
+  name: checkoutservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+currencyService:
+  create: true
+  name: currencyservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+emailService:
+  create: true
+  name: emailservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+paymentService:
+  create: true
+  name: paymentservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+productCatalogService:
+  create: true
+  name: productcatalogservice
+  extraLatency: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+recommendationService:
+  create: true
+  name: recommendationservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 220Mi
+    limits:
+      cpu: 200m
+      memory: 450Mi
+
+shippingService:
+  create: true
+  name: shippingservice
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+frontend:
+  create: true
+  name: frontend
+  externalService: true
+  platform: local
+  cymbalBranding: false
+  singleSharedSession: false
+  virtualService:
+    create: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

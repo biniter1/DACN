@@ -18,7 +18,7 @@ on:
 jobs:
   ci:
     name: Java CI — ${{ inputs.service }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     defaults:

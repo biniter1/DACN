@@ -5,13 +5,6 @@ terraform {
       version = "~> 6.35.1"
     }
   }
-
-  backend "s3" {
-    bucket         = "company-terraform-state-demo-project"
-    key            = "prod/terraform.tfstate"
-    region         = "ap-southeast-2"
-    dynamodb_table = "terraform-lock-demo-project"
-  }
 }
 
 provider "aws" {
@@ -36,9 +29,15 @@ module "vpc" {
 # IAM Roles & Policies
 # ──────────────────────────────────────────
 module "iam" {
-  source = "./modules/iam"
+  source       = "./modules/iam"
   name_project = var.name_project
+}
 
+# ──────────────────────────────────────────
+# ECR Repositories
+# ──────────────────────────────────────────
+module "ecr" {
+  source = "./modules/ecr"
 }
 
 # ──────────────────────────────────────────
@@ -55,11 +54,11 @@ module "security_group" {
 module "eks_cluster" {
   source = "./modules/compute/eks_cluster"
 
-  name_project        = var.name_project
-  Environment         = var.Environment
-  private_subnets     = module.vpc.private_subnet_ids
+  name_project         = var.name_project
+  Environment          = var.Environment
+  private_subnets      = module.vpc.private_subnet_ids
   eks_cluster_role_arn = module.iam.eks_cluster_role_arn
-  eks_node_sg_id      = module.security_group.eks_node_sg_id
+  eks_node_sg_id       = module.security_group.eks_node_sg_id
 }
 
 # ──────────────────────────────────────────

@@ -28,3 +28,13 @@ output "eks_cluster_ca" {
   value       = module.eks_cluster.cluster_ca
   sensitive   = true
 }
+
+output "github_actions_role_arn" {
+  description = "IAM Role ARN cho GitHub Actions OIDC"
+  value       = module.iam.github_actions_role_arn
+}
+
+output "ecr_repository_urls" {
+  description = "ECR repository URLs"
+  value       = module.ecr.repository_urls
+}

@@ -1,0 +1,33 @@
+# ============================================================
+# rbac-baseline.yaml — RBAC mặc định không granular
+#
+# BASELINE: Không có RBAC per-service
+# Mọi ServiceAccount đều dùng default SA của namespace
+# Default SA chưa bị restrict → có thể list/get secrets
+# (Zero Trust: mỗi service có SA riêng, RBAC deny list secrets)
+# ============================================================
+
+# Không có ClusterRole / Role custom nào
+# Tất cả pod chạy với default ServiceAccount của namespace
+# default SA trong K8s có thể:
+#   - list pods, services trong namespace
+#   - list configmaps (nếu không restrict)
+#   - gọi K8s API với token tự mount
+
+# Demo KH5: Từ bên trong pod, attacker dùng mounted token để
+# gọi API /api/v1/namespaces/boutique-baseline/secrets → thành công
+# vì không có RBAC deny
+
+---
+# Chỉ tạo SA mặc định, không restrict gì thêm
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: boutique-baseline
+  annotations:
+    # BASELINE: Không có Pod Identity annotation
+    # Không có eks.amazonaws.com/role-arn
+    description: "Default service account - no RBAC restrictions"
+# automountServiceAccountToken không set = mặc định TRUE
+# → Token tự mount vào tất cả pods

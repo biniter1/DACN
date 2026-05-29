@@ -11,7 +11,7 @@ jobs:
   # ── SAST: CodeQL (multi-language parallel) ──────────────
   codeql:
     name: 🔬 CodeQL — ${{ matrix.language }}
-    runs-on: self-hosted
+    runs-on: subuntu-latest
     permissions:
       security-events: write
       actions: read

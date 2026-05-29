@@ -13,7 +13,7 @@ jobs:
   # ── DETECT CHANGES ────────────────────────────────────────
   changes:
     name: 🔍 Detect Changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       frontend:              ${{ steps.filter.outputs.frontend }}
       cartservice:           ${{ steps.filter.outputs.cartservice }}

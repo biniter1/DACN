@@ -1,0 +1,14 @@
+# ============================================================
+# namespace.yaml — Baseline namespace
+# Không có PSS label restrict → pod có thể chạy với privilege
+# (Zero Trust dùng PSS restricted)
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: boutique-baseline
+  labels:
+    # BASELINE: PSS ở mức warning, không enforce restricted
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn-version: latest
+    # Không có: pod-security.kubernetes.io/enforce: restricted

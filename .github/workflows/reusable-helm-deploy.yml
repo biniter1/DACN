@@ -22,7 +22,7 @@ jobs:
   deploy:
     name: Deploy → ${{ inputs.environment }}
     # ── QUAN TRỌNG: chạy trên máy bạn, không phải GitHub cloud ──
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
       url: ${{ steps.get-url.outputs.url }}
@@ -227,7 +227,7 @@ jobs:
     name: ⏪ Auto Rollback
     needs: deploy
     if: failure() && inputs.environment == 'production'
-    runs-on: self-hosted
+    runs-on: self-hostedubuntu-latest
     steps:
       - name: Helm rollback
         run: |
